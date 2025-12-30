@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(python run_vector_pipeline.py:*)",
+      "Bash(python math_video_pipeline.py init:*)",
+      "Bash(pip install:*)",
+      "Bash(mkdir:*)",
+      "Bash(python:*)",
+      "Bash(set PYTHONIOENCODING=utf-8)",
+      "Bash(chcp 6500)",
+      "Bash(set:*)",
+      "Bash(timeout /t 10 /nobreak)",
+      "Bash(del /Q C:PROJECTMath-Video-MakeroutputP20251229_1027010_audio*.mp3)",
+      "Bash(del /Q C:PROJECTMath-Video-MakeroutputP20251229_1027010_audio*.json)",
+      "Bash(Remove-Item C:PROJECTMath-Video-MakeroutputP20251229_1027010_audio*.mp3 -Force)",
+      "Bash(Remove-Item C:PROJECTMath-Video-MakeroutputP20251229_1027010_audio*.json -Force)",
+      "Bash(chcp 65001)",
+      "Bash(start test_ssml_output.mp3)"
+    ]
+  }
+}

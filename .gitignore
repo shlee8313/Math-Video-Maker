@@ -1,0 +1,209 @@
+# ============================================================================
+# Math-Video-Maker .gitignore
+# ============================================================================
+
+# ============================================================================
+# 환경 변수 및 인증 정보 (절대 커밋하지 말 것!)
+# ============================================================================
+.env
+*.env
+
+# Google Cloud 서비스 계정 JSON 키
+*-key.json
+gen-lang-client-*.json
+google-*.json
+service-account-*.json
+
+# OpenAI API 키 파일
+openai-*.txt
+api-keys.txt
+
+# ============================================================================
+# Python
+# ============================================================================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+*.venv
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# ============================================================================
+# 프로젝트 출력 파일
+# ============================================================================
+# 모든 출력 폴더 (TTS, 렌더링, 최종 영상 등)
+output/
+media/
+
+# 테스트 파일
+test_*.mp3
+test_*.mp4
+test_*.json
+*_test.*
+
+# 임시 파일
+temp/
+tmp/
+*.tmp
+
+# 로그 파일
+*.log
+logs/
+
+# ============================================================================
+# IDE 및 에디터
+# ============================================================================
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# ============================================================================
+# OS 관련
+# ============================================================================
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Linux
+*~
+
+# ============================================================================
+# Manim 관련
+# ============================================================================
+# Manim 렌더링 출력
+media/
+Tex/
+*.aux
+*.dvi
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+
+# ============================================================================
+# 기타
+# ============================================================================
+# 백업 파일
+*.bak
+*.backup
+*~
+
+# 압축 파일 (필요시 제외)
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# 데이터베이스
+*.db
+*.sqlite
+*.sqlite3
+
+# Node modules (혹시 프론트엔드 추가 시)
+node_modules/
+
+# ============================================================================
+# 프로젝트별 예외 (커밋해야 하는 파일)
+# ============================================================================
+# state.json은 .gitignore에 포함하지 않음 (프로젝트 상태 추적용)
+# !state.json
+
+# skills/ 폴더는 커밋 (가이드라인 문서)
+!skills/
+!skills/*.md
+
+# README, CLAUDE.md 등 문서는 커밋
+!*.md
+!README.md
+!CLAUDE.md
+
+# requirements.txt는 커밋
+!requirements.txt
+
+# Python 스크립트는 커밋
+!*.py
+
+# ============================================================================
+# 개발 중 임시로 생성되는 파일
+# ============================================================================
+# 스크래치 파일
+scratch/
+sandbox/
+draft/
+
+# 실험용 파일
+experiment_*.py
+playground_*.py

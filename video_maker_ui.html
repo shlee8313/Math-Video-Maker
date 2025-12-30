@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>수학 교육 영상 제작 시스템</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient( #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+        }
+        
+        h1 {
+            font-size: 2.5em;
+            color: #667eea;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 40px;
+            font-size: 1.1em;
+        }
+        
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+        
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        label {
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+            font-size: 0.95em;
+        }
+        
+        input, select {
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 1em;
+            transition: all 0.3s;
+        }
+        
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 1.1em;
+            font-weight: 600;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-top: 20px;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+        
+        .output-section {
+            margin-top: 40px;
+            padding: 25px;
+            background: #f8f9fa;
+            border-radius: 15px;
+            display: none;
+        }
+        
+        .output-section.show {
+            display: block;
+        }
+        
+        .output-header {
+            font-size: 1.5em;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #333;
+        }
+        
+        .scene-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .scene-id {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+        
+        .scene-detail {
+            display: grid;
+            grid-template-columns: 150px 1fr;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+        
+        .scene-label {
+            font-weight: 600;
+            color: #666;
+        }
+        
+        .scene-value {
+            color: #333;
+        }
+        
+        .code-preview {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            overflow-x: auto;
+            margin-top: 10px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+        
+        .status-success {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status-warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎓 수학 교육 영상 제작 시스템</h1>
+        <p class="subtitle">Claude Code × Manim으로 자동화된 수학 영상 제작</p>
+        
+        <form id="videoForm">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="title">📚 영상 주제</label>
+                    <input type="text" id="title" name="title" 
+                           placeholder="예: 미분의 직관적 이해" 
+                           value="미분의 직관적 이해" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="duration">⏱️ 영상 길이 (초)</label>
+                    <input type="number" id="duration" name="duration" 
+                           value="180" min="60" max="600" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="difficulty">🎯 난이도</label>
+                    <select id="difficulty" name="difficulty">
+                        <option value="beginner">입문 (Beginner)</option>
+                        <option value="intermediate" selected>중급 (Intermediate)</option>
+                        <option value="advanced">고급 (Advanced)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="style">🎨 시각 스타일</label>
+                    <select id="style" name="style">
+                        <option value="minimal" selected>미니멀 (Minimal)</option>
+                        <option value="cyberpunk">사이버펑크 (Cyberpunk)</option>
+                        <option value="paper">종이 질감 (Paper)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="aspect_ratio">📐 종횡비</label>
+                    <select id="aspect_ratio" name="aspect_ratio">
+                        <option value="16:9" selected>16:9 (YouTube)</option>
+                        <option value="9:16">9:16 (Shorts)</option>
+                    </select>
+                </div>
+            </div>
+            
+            <button type="submit" class="btn-primary">🚀 영상 제작 시작</button>
+        </form>
+        
+        <div id="outputSection" class="output-section">
+            <div id="loadingState" class="loading">
+                <div class="spinner"></div>
+                <p>영상을 제작하고 있습니다...</p>
+            </div>
+            
+            <div id="resultState" style="display: none;">
+                <div class="output-header">
+                    제작 완료! 
+                    <span class="status-badge status-success">✓ 성공</span>
+                </div>
+                
+                <div id="scenesContainer"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        document.getElementById('videoForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = new FormData(e.target);
+            const config = Object.fromEntries(formData.entries());
+            
+            // 출력 섹션 표시
+            const outputSection = document.getElementById('outputSection');
+            const loadingState = document.getElementById('loadingState');
+            const resultState = document.getElementById('resultState');
+            
+            outputSection.classList.add('show');
+            loadingState.style.display = 'block';
+            resultState.style.display = 'none';
+            
+            // 시뮬레이션: 실제로는 Python 백엔드 호출
+            setTimeout(() => {
+                loadingState.style.display = 'none';
+                resultState.style.display = 'block';
+                
+                // 더미 데이터 (실제로는 Python에서 받음)
+                const scenes = [
+                    {
+                        scene_id: 's1',
+                        section: 'Hook',
+                        duration: 12,
+                        narration: '여러분, 미분이 뭔지 아시나요?',
+                        visual_concept: '물음표가 화면 가득 → dy/dx 기호로 변신',
+                        wow_moment: 'Transform + Flash',
+                        code_file: 's1_manim.py',
+                        validation_status: '✓ 검증 통과',
+                        warnings: 1
+                    },
+                    {
+                        scene_id: 's2',
+                        section: '분석',
+                        duration: 18,
+                        narration: '자동차 속도계는 60km/h를 표시합니다',
+                        visual_concept: '속도계 이미지 → 수식 dy/dx로 변환',
+                        wow_moment: '속도계→수식 변환 순간',
+                        code_file: 's2_manim.py',
+                        validation_status: '✓ 검증 통과',
+                        warnings: 1
+                    }
+                ];
+                
+                const container = document.getElementById('scenesContainer');
+                container.innerHTML = scenes.map(scene => `
+                    <div class="scene-card">
+                        <div class="scene-id">${scene.scene_id.toUpperCase()} - ${scene.section}</div>
+                        
+                        <div class="scene-detail">
+                            <span class="scene-label">⏱️ 길이:</span>
+                            <span class="scene-value">${scene.duration}초</span>
+                        </div>
+                        
+                        <div class="scene-detail">
+                            <span class="scene-label">🎙️ 나레이션:</span>
+                            <span class="scene-value">${scene.narration}</span>
+                        </div>
+                        
+                        <div class="scene-detail">
+                            <span class="scene-label">🎨 시각 콘셉트:</span>
+                            <span class="scene-value">${scene.visual_concept}</span>
+                        </div>
+                        
+                        <div class="scene-detail">
+                            <span class="scene-label">✨ Wow 모멘트:</span>
+                            <span class="scene-value">${scene.wow_moment}</span>
+                        </div>
+                        
+                        <div class="scene-detail">
+                            <span class="scene-label">📄 코드 파일:</span>
+                            <span class="scene-value">
+                                ${scene.code_file} 
+                                <span class="status-badge ${scene.warnings > 0 ? 'status-warning' : 'status-success'}">
+                                    ${scene.validation_status}
+                                    ${scene.warnings > 0 ? ` (⚠️ ${scene.warnings} 경고)` : ''}
+                                </span>
+                            </span>
+                        </div>
+                        
+                        <div class="code-preview">
+                            <div style="color: #6a9fb5;">from</div> manim <div style="color: #6a9fb5;">import</div> *<br><br>
+                            <div style="color: #6a9fb5;">class</div> <div style="color: #4ec9b0;">${scene.scene_id.charAt(0).toUpperCase() + scene.scene_id.slice(1)}</div>(<div style="color: #4ec9b0;">Scene</div>):<br>
+                            &nbsp;&nbsp;&nbsp;&nbsp;<div style="color: #6a9fb5;">def</div> <div style="color: #dcdcaa;">construct</div>(<div style="color: #9cdcfe;">self</div>):<br>
+                            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<div style="color: #608b4e;"># ${scene.visual_concept}</div><br>
+                            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;...<br>
+                        </div>
+                    </div>
+                `).join('');
+            }, 2000);
+        });
+    </script>
+</body>
+</html>

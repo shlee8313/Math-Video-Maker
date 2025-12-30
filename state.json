@@ -1,0 +1,28 @@
+{
+  "project_id": "P20251229_102701",
+  "title": "인플레이션의 교묘한 속임수: '슈링크플레이션'의 기하학",
+  "current_phase": "initialized",
+  "style": "cyberpunk",
+  "difficulty": "intermediate",
+  "duration": 300,
+  "aspect_ratio": "16:9",
+  "scenes": {
+    "total": 0,
+    "completed": [],
+    "pending": []
+  },
+  "last_updated": "2025-12-29T11:09:25.285148",
+  "settings": {
+    "style": "stickman",
+    "difficulty": "intermediate",
+    "duration": 480,
+    "aspect_ratio": "16:9",
+    "voice": "ko-KR-Wavenet-C"
+  },
+  "files": {
+    "script": "output/P20251229_102701/1_script/reading_script.json",
+    "scenes": "output/P20251229_102701/2_scenes/scenes.json",
+    "audio": [],
+    "manim": []
+  }
+}
