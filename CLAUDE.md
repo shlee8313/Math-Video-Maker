@@ -60,9 +60,55 @@ Claude가 할 것:
    - narration_tts (음성용: 구 곱하기 구는 팔십일)
    - visual_concept
    - wow_moment
+   - **required_assets** (필요한 PNG 에셋 목록)
+   - **is_3d** (3D 씬 여부: true/false)
+   - **scene_class** (Scene 또는 ThreeDScene)
+   - **camera_settings** (3D일 때 카메라 설정)
 4. 사용자에게 씬 목록 보여주고 승인 요청
 5. 승인 시 → `output/{project_id}/2_scenes/scenes.json` 저장
 6. **state.json 업데이트**: `current_phase: "scenes_approved"`, `files.scenes` 경로 저장
+
+✅ **이 시점에서 `/clear` 가능**
+
+---
+
+### Step 3.5: 에셋 체크 (NEW)
+
+Claude가 할 것:
+
+1. `scenes.json`에서 모든 `required_assets` 수집
+2. `assets/` 폴더 (루트 레벨) 구조 확인
+3. 필요한 파일 vs 존재하는 파일 비교
+4. **없는 파일이 있으면** → 사용자에게 상세 안내:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  🎨 다음 이미지를 준비해주세요                            │
+├─────────────────────────────────────────────────────────┤
+│  파일명: stickman_confused.png                          │
+│  설명: 혼란스러운 표정의 졸라맨 (고개 갸웃, 물음표)        │
+│  사용 씬: s2, s5                                        │
+│  저장 위치: assets/characters/                          │
+├─────────────────────────────────────────────────────────┤
+│  파일명: snack_bag.png                                  │
+│  설명: 과자 봉지 (오렌지색 계열, 투명 배경)               │
+│  사용 씬: s2, s3, s4                                    │
+│  저장 위치: assets/objects/                             │
+├─────────────────────────────────────────────────────────┤
+│  📐 권장 사양:                                          │
+│  - 해상도: 500x500px 이상 (1000x1000 권장)              │
+│  - 배경: 투명 (PNG)                                     │
+│  - 스타일: 단순한 선화/일러스트                          │
+│  - 색상: 밝은 색 (어두운 배경에서 잘 보이게)              │
+└─────────────────────────────────────────────────────────┘
+
+준비 완료되면 "에셋 준비 완료" 라고 말씀해주세요.
+```
+
+5. 사용자가 "에셋 준비 완료" 입력 시 → 다시 폴더 확인
+6. 모든 파일 존재 → Step 4 진행
+7. 아직 없는 파일 → 누락 목록 다시 안내
+8. **state.json 업데이트**: `current_phase: "assets_checked"`
 
 ✅ **이 시점에서 `/clear` 가능**
 
@@ -93,6 +139,7 @@ Claude가 할 것:
    - `Text("한글", font="Noto Sans KR")`
    - `self.wait(n)  # wait_tag_s{씬}_{순서}`
    - 컬러 팔레트 준수
+   - **PNG 에셋은 ImageMobject 사용** (경로: `assets/...`)
 5. `output/{project_id}/4_manim_code/{scene_id}_manim.py` 저장
 6. **state.json 업데이트**: `scenes.completed[]` 배열에 추가, `scenes.current` 업데이트
 7. 다음 씬으로 진행
@@ -119,18 +166,42 @@ Claude가 할 것:
 
 1. `python math_video_pipeline.py images-check` 로 검증
 2. 또는 `python math_video_pipeline.py images-import --source "다운로드폴더"` 로 일괄 가져오기
+3. **state.json 업데이트**: `current_phase: "images_ready"`, `files.images[]` 배열 저장
 
 ✅ **이 시점에서 `/clear` 가능**
 
 ---
 
-### Step 6: 렌더링
+### Step 6: Manim 렌더링
 
 Claude가 할 것:
 
 1. "렌더링을 시작할까요?" 물어보기
 2. 승인 시 → `python math_video_pipeline.py render-all` 실행
-3. 또는 → `python math_video_pipeline.py render-script` 로 스크립트 생성
+3. 결과 확인 (28개 씬 렌더링 성공 여부)
+4. **state.json 업데이트**: `current_phase: "rendered"`
+
+✅ **이 시점에서 `/clear` 가능**
+
+---
+
+### Step 7: 자막 생성 및 최종 합성
+
+Claude가 할 것:
+
+1. SRT 자막 파일 생성
+   → `python math_video_pipeline.py subtitle-generate`
+   → `7_subtitles/` 폴더에 `s1.srt`, `s2.srt`, ... 생성
+
+2. 씬별 최종 합성 (배경 + Manim + 오디오 + 자막)
+   → `python math_video_pipeline.py compose-all`
+   → FFmpeg로 각 씬 합성: 배경 이미지 + Manim 애니메이션 + TTS 오디오 + SRT 자막
+
+3. 전체 영상 병합
+   → `python math_video_pipeline.py merge-final`
+   → `final_video.mp4` 생성
+
+4. **state.json 업데이트**: `current_phase: "completed"`
 
 ---
 
@@ -154,9 +225,18 @@ Claude가 할 것:
 ┌─────────────────────────────────────────────────────────────┐
 │  Step 3: 씬 분할 → 승인 → 저장                                │
 │  → files.scenes 경로 저장                                    │
+│  → required_assets 목록 생성                                 │
 └─────────────────────────────────────────────────────────────┘
                               ↓
                     ✅ /clear 가능 #2
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│  Step 3.5: 에셋 체크 (NEW)                                   │
+│  → 필요한 PNG 파일 확인 (assets/ 폴더)                       │
+│  → 없으면 사용자에게 안내                                     │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+                    ✅ /clear 가능 #2.5
                               ↓
 ┌─────────────────────────────────────────────────────────────┐
 │  Step 4: TTS 생성 완료                                        │
@@ -174,20 +254,30 @@ Claude가 할 것:
                     ✅ /clear 가능 #5
                               ↓
 ┌─────────────────────────────────────────────────────────────┐
-│  Step 6: 렌더링                                              │
+│  Step 6: Manim 렌더링                                        │
+│  → 28개 씬 영상 렌더링                                       │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+                    ✅ /clear 가능 #6
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│  Step 7: 자막 생성 및 최종 합성                               │
+│  → SRT 자막 생성 → FFmpeg 합성 → 최종 영상                   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ### /clear 가능 지점 요약
 
-| 지점 | 타이밍                | 저장된 파일                   | 재개 명령             |
-| ---- | --------------------- | ----------------------------- | --------------------- |
-| #1   | 대본 승인 후          | `1_script/*.json`             | "계속"                |
-| #2   | 씬 분할 승인 후       | `2_scenes/scenes.json`        | "계속"                |
-| #3   | TTS 생성 완료 후      | `0_audio/*.mp3, *.json`       | "계속"                |
-| #4   | 씬 3-5개 코드 완료 후 | `4_manim_code/s1~s5_manim.py` | "계속" 또는 "s6 코드" |
-| #5   | 모든 코드 완료 후     | 모든 `_manim.py`              | "프롬프트 내보내기"   |
-| #6   | 이미지 준비 완료 후   | `9_backgrounds/*.png`         | "렌더링"              |
+| 지점 | 타이밍                | 저장된 파일                   | state.json 자동 업데이트     | 재개 명령             |
+| ---- | --------------------- | ----------------------------- | ---------------------------- | --------------------- |
+| #1   | 대본 승인 후          | `1_script/*.json`             | ✅ phase→script_approved     | "계속"                |
+| #2   | 씬 분할 승인 후       | `2_scenes/scenes.json`        | ✅ phase→scenes_approved     | "계속"                |
+| #2.5 | 에셋 체크 완료 후     | `assets/` 폴더 PNG 파일들     | ✅ phase→assets_checked      | "계속"                |
+| #3   | TTS 생성 완료 후      | `0_audio/*.mp3, *.json`       | ✅ phase→tts_completed       | "계속"                |
+| #4   | 씬 3-5개 코드 완료 후 | `4_manim_code/s1~s5_manim.py` | ✅ scenes.completed 업데이트 | "계속" 또는 "s6 코드" |
+| #5   | 모든 코드 완료 후     | 모든 `_manim.py`              | ✅ phase→manim_completed     | "프롬프트 내보내기"   |
+| #6   | 이미지 준비 완료 후   | `9_backgrounds/*.png`         | ✅ phase→images_ready        | "렌더링"              |
+| #7   | Manim 렌더링 완료 후  | `8_renders/*.mp4`             | ✅ phase→rendered            | "자막 생성"           |
 
 ### ⚠️ /clear 금지 구간
 
@@ -195,6 +285,7 @@ Claude가 할 것:
 | ------------------------ | ---------------------- |
 | 대본 작성 **중**         | 승인 전이라 저장 안 됨 |
 | 씬 분할 **중**           | 승인 전이라 저장 안 됨 |
+| 에셋 체크 **중**         | 확인 완료 전           |
 | TTS 생성 **중**          | API 호출 중단됨        |
 | 특정 씬 코드 작성 **중** | 해당 씬 코드 유실      |
 
@@ -210,10 +301,11 @@ Claude: state.json 읽고 현재 단계 파악 → 이어서 진행
 ```
 세션 1: 시작 → 대본 승인 → /clear
 세션 2: 계속 → 씬 분할 승인 → /clear
-세션 3: 계속 → TTS 생성 → /clear
-세션 4: 계속 → s1~s5 코드 → /clear
-세션 5: 계속 → s6~s10 코드 → /clear
-세션 6: 렌더링
+세션 3: 계속 → 에셋 체크 → 에셋 준비 → /clear
+세션 4: 계속 → TTS 생성 → /clear
+세션 5: 계속 → s1~s5 코드 → /clear
+세션 6: 계속 → s6~s10 코드 → /clear
+세션 7: 렌더링
 ```
 
 ---
@@ -244,6 +336,11 @@ Claude: state.json 읽고 현재 단계 파악 → 이어서 진행
     "audio": ["s1_audio.mp3", "s2_audio.mp3"],
     "manim": ["s1_manim.py", "s2_manim.py"]
   },
+  "assets": {
+    "required": ["characters/stickman_confused.png", "objects/snack_bag.png"],
+    "available": ["characters/stickman_confused.png"],
+    "missing": ["objects/snack_bag.png"]
+  },
   "last_updated": "2025-06-15T14:35:00"
 }
 ```
@@ -272,6 +369,21 @@ Claude: state.json 읽고 현재 단계 파악 → 이어서 진행
     "total": 8,
     "completed": [],
     "pending": ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8"]
+  },
+  "assets": {
+    "required": ["characters/stickman_confused.png", "objects/snack_bag.png"],
+    "available": [],
+    "missing": ["characters/stickman_confused.png", "objects/snack_bag.png"]
+  }
+}
+
+// Step 3.5 완료: 에셋 체크 후
+{
+  "current_phase": "assets_checked",
+  "assets": {
+    "required": ["characters/stickman_confused.png", "objects/snack_bag.png"],
+    "available": ["characters/stickman_confused.png", "objects/snack_bag.png"],
+    "missing": []
   }
 }
 
@@ -296,6 +408,27 @@ Claude: state.json 읽고 현재 단계 파악 → 이어서 진행
   }
 }
 
+// Step 5 완료: 모든 Manim 코드 완료
+{
+  "current_phase": "manim_completed",
+  "scenes": {
+    "completed": ["s1", "s2", ..., "s28"],
+    "pending": [],
+    "current": null
+  },
+  "files": {
+    "manim": ["s1_manim.py", "s2_manim.py", ..., "s28_manim.py"]
+  }
+}
+
+// Step 5.5 완료: 배경 이미지 준비 후
+{
+  "current_phase": "images_ready",
+  "files": {
+    "images": ["s1_bg.png", "s2_bg.png", ..., "s28_bg.png"]
+  }
+}
+
 // Step 6: 렌더링 완료
 {
   "current_phase": "completed",
@@ -304,6 +437,177 @@ Claude: state.json 읽고 현재 단계 파악 → 이어서 진행
   }
 }
 ```
+
+---
+
+## 🎨 에셋(Asset) 시스템
+
+### 에셋 폴더 위치
+
+**중요:** 에셋은 프로젝트별이 아닌 **루트 레벨**에 위치합니다.
+→ 모든 프로젝트에서 공용으로 사용
+
+```
+Math-Video-Maker/
+├── assets/                    ← 🔥 루트 레벨 (모든 프로젝트 공용)
+│   ├── characters/
+│   ├── objects/
+│   └── icons/
+│
+└── output/
+    └── {project_id}/          ← 프로젝트별 출력물
+```
+
+### 에셋이 필요한 경우
+
+| 구분              | Manim으로 그리기 ✅       | PNG 에셋 사용 ✅    |
+| ----------------- | ------------------------- | ------------------- |
+| 수식              | `MathTex(r"x^2")`         | -                   |
+| 그래프            | `axes.plot(...)`          | -                   |
+| 기본 도형         | `Circle()`, `Rectangle()` | -                   |
+| 화살표            | `Arrow()`, `Vector()`     | -                   |
+| **캐릭터**        | ❌ 이상하게 나옴          | `stickman_*.png`    |
+| **실물 물체**     | ❌ 이상하게 나옴          | `snack_bag.png`     |
+| **복잡한 아이콘** | ❌                        | `question_mark.png` |
+
+### 에셋 폴더 구조
+
+```
+assets/                            ← 루트 레벨 (모든 프로젝트 공용)
+├── characters/                    ← 캐릭터
+│   ├── stickman_neutral.png           # 기본 자세
+│   ├── stickman_thinking.png          # 생각하는 🤔
+│   ├── stickman_surprised.png         # 놀란 😲
+│   ├── stickman_happy.png             # 기쁜 😊
+│   ├── stickman_confused.png          # 혼란 😕
+│   ├── stickman_pointing.png          # 가리키는 👉
+│   ├── stickman_holding.png           # 물건 든
+│   └── stickman_sad.png               # 슬픈 😢
+│
+├── objects/                       ← 물체
+│   ├── snack_bag_normal.png           # 일반 과자
+│   ├── snack_bag_shrunk.png           # 줄어든 과자
+│   ├── money.png                      # 돈
+│   ├── cart.png                       # 카트
+│   ├── receipt.png                    # 영수증
+│   ├── scale.png                      # 저울
+│   └── calculator.png                 # 계산기
+│
+└── icons/                         ← 아이콘
+    ├── question_mark.png              # 물음표
+    ├── exclamation.png                # 느낌표
+    ├── lightbulb.png                  # 전구 (아이디어)
+    ├── arrow_right.png                # 화살표
+    └── checkmark.png                  # 체크마크
+```
+
+### 에셋 파일 사양
+
+| 항목      | 권장 값                             |
+| --------- | ----------------------------------- |
+| 해상도    | 500x500px 이상 (1000x1000 권장)     |
+| 포맷      | PNG (투명 배경 필수)                |
+| 색상      | 밝은 색 (어두운 배경에서 잘 보이게) |
+| 스타일    | 단순한 선화/일러스트                |
+| 파일 크기 | 1MB 이하 권장                       |
+
+### 에셋 파일명 규칙
+
+```
+{이름}_{상태}.png
+
+예시:
+- stickman_neutral.png      (졸라맨 기본)
+- stickman_happy.png        (졸라맨 기쁨)
+- snack_bag_normal.png      (과자봉지 일반)
+- snack_bag_shrunk.png      (과자봉지 줄어든)
+```
+
+### 에셋 카탈로그 (기본 제공 목록)
+
+Scene Director가 참고하는 에셋 목록:
+
+#### 캐릭터 (characters/)
+
+| 파일명                   | 설명                    | 사용 상황         |
+| ------------------------ | ----------------------- | ----------------- |
+| `stickman_neutral.png`   | 기본 자세               | 일반 설명         |
+| `stickman_thinking.png`  | 생각하는 포즈 (턱 괴기) | "생각해봅시다"    |
+| `stickman_surprised.png` | 놀란 표정               | 반전, 충격적 사실 |
+| `stickman_happy.png`     | 기쁜 표정               | 문제 해결, 정답   |
+| `stickman_confused.png`  | 혼란스러운 표정         | 의문, 이상함      |
+| `stickman_pointing.png`  | 가리키는 포즈           | 강조, 설명        |
+| `stickman_holding.png`   | 물건 든 포즈            | 물건 소개         |
+| `stickman_sad.png`       | 슬픈 표정               | 손해, 실패        |
+
+#### 물체 (objects/)
+
+| 파일명                 | 설명            | 사용 상황         |
+| ---------------------- | --------------- | ----------------- |
+| `snack_bag_normal.png` | 일반 과자봉지   | 슈링크플레이션 전 |
+| `snack_bag_shrunk.png` | 줄어든 과자봉지 | 슈링크플레이션 후 |
+| `money.png`            | 돈/지폐         | 가격, 비용        |
+| `cart.png`             | 쇼핑카트        | 마트 장면         |
+| `receipt.png`          | 영수증          | 계산, 결제        |
+| `scale.png`            | 저울            | 무게 비교         |
+| `calculator.png`       | 계산기          | 계산 장면         |
+
+#### 아이콘 (icons/)
+
+| 파일명              | 설명          | 사용 상황        |
+| ------------------- | ------------- | ---------------- |
+| `question_mark.png` | 물음표        | 의문 제기        |
+| `exclamation.png`   | 느낌표        | 강조, 놀람       |
+| `lightbulb.png`     | 전구          | 아이디어, 깨달음 |
+| `arrow_right.png`   | 오른쪽 화살표 | 진행, 변화       |
+| `checkmark.png`     | 체크마크      | 완료, 정답       |
+
+### 에셋 안내 메시지 형식
+
+사용자에게 에셋 요청 시 다음 형식 사용:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  🎨 다음 이미지를 준비해주세요                            │
+├─────────────────────────────────────────────────────────┤
+│  📁 파일명: stickman_confused.png                       │
+│  📝 설명: 혼란스러운 표정의 졸라맨                        │
+│     - 고개 갸웃                                         │
+│     - 머리 위에 물음표 또는 땀방울                        │
+│     - 단순한 선화 스타일                                 │
+│  🎬 사용 씬: s2, s5, s8                                 │
+│  📂 저장 위치: assets/characters/                       │
+├─────────────────────────────────────────────────────────┤
+│  📁 파일명: snack_bag.png                               │
+│  📝 설명: 과자 봉지                                      │
+│     - 오렌지색 또는 노란색 계열                           │
+│     - 약간 부풀어 보이는 모양                             │
+│  🎬 사용 씬: s2, s3, s4                                 │
+│  📂 저장 위치: assets/objects/                          │
+├─────────────────────────────────────────────────────────┤
+│  📐 권장 사양:                                          │
+│  - 해상도: 500x500px 이상 (1000x1000 권장)              │
+│  - 배경: 투명 (PNG)                                     │
+│  - 스타일: 단순한 선화/일러스트                          │
+└─────────────────────────────────────────────────────────┘
+
+이미지 생성 도구 추천:
+- Midjourney, DALL-E, Leonardo.ai
+- Canva, Figma (직접 그리기)
+- 무료 아이콘 사이트 (Flaticon, Icons8)
+
+준비 완료되면 "에셋 준비 완료" 라고 말씀해주세요.
+```
+
+### 에셋 재사용의 장점
+
+```
+프로젝트 A: 슈링크플레이션 → stickman_confused.png 생성
+프로젝트 B: 복리 계산 → stickman_confused.png 재사용 ✅
+프로젝트 C: 확률 이론 → stickman_confused.png 재사용 ✅
+```
+
+한 번 만든 에셋은 영원히 재사용!
 
 ---
 
@@ -325,6 +629,17 @@ self.wait(1.5)  # ❌
 # 4. 수식 가독성
 equation.set_stroke(width=8, background=True)  # 그림자
 equation.add_background_rectangle()  # 배경
+
+# 5. PNG 에셋 사용 (캐릭터/물체) - 루트 assets 폴더에서 로드
+stickman = ImageMobject("assets/characters/stickman_confused.png")  # ✅
+stickman.scale(0.5).shift(LEFT*3)
+
+snack = ImageMobject("assets/objects/snack_bag.png")  # ✅
+snack.scale(0.3).next_to(stickman, RIGHT)
+
+# 직접 그리기 금지 ❌
+# stickman_head = Circle(radius=0.3)
+# stickman_body = Line(...)
 ```
 
 ---
@@ -343,56 +658,78 @@ equation.add_background_rectangle()  # 배경
 
 ## 🎨 스타일별 설정
 
+### 스타일-색상 매핑표
+
+| 스타일    | 배경 타입 | text_color_mode | 배경 색상 | Manim 텍스트 색상 |
+| --------- | --------- | --------------- | --------- | ----------------- |
+| minimal   | 어두운    | **light**       | #000000   | WHITE, YELLOW     |
+| cyberpunk | 어두운    | **light**       | #0a0a0a   | CYAN, MAGENTA     |
+| space     | 어두운    | **light**       | #000011   | WHITE, BLUE       |
+| geometric | 어두운    | **light**       | #1a1a1a   | GOLD, YELLOW      |
+| stickman  | 어두운    | **light**       | #1a2a3a   | WHITE, YELLOW     |
+| **paper** | **밝은**  | **dark**        | #f5f5dc   | BLACK, DARK_BLUE  |
+
+> **중요**: `text_color_mode`는 배경 이미지와 Manim 애니메이션의 색상 대비를 결정합니다.
+> - `light`: 어두운 배경 → 밝은 텍스트/수식
+> - `dark`: 밝은 배경 → 어두운 텍스트/수식
+
 ### minimal
 
 - 배경: BLACK
 - 주요 색상: WHITE, YELLOW
 - 글로우: 없음
+- **text_color_mode: light**
 
 ### cyberpunk
 
 - 배경: #0a0a0a
 - 주요 색상: CYAN, MAGENTA
 - 글로우: 있음 (`set_stroke width=15, opacity=0.3`)
+- **text_color_mode: light**
 
 ### paper
 
 - 배경: #f5f5dc (베이지)
 - 주요 색상: BLACK, DARK_GRAY
 - 글로우: 없음
+- **text_color_mode: dark**
 
 ### space
 
 - 배경: #000011 (진한 남색)
 - 주요 색상: BLUE, WHITE
 - 글로우: 있음
+- **text_color_mode: light**
 
 ### geometric
 
 - 배경: #1a1a1a
 - 주요 색상: GOLD
 - 글로우: 없음
+- **text_color_mode: light**
 
 ### stickman (졸라맨)
 
 - 배경: #1a2a3a ~ #2a3a4a (어두운 컬러풀)
 - 주요 색상: WHITE, YELLOW
 - 글로우: 없음
-- 특징: 귀여운 막대기 인간이 가장자리에 배치
+- **text_color_mode: light**
+- 특징: PNG 에셋으로 졸라맨 캐릭터 사용
+- **주의**: 캐릭터를 코드로 그리지 말고 반드시 PNG 사용
 
 ---
 
 ## 🎤 TTS 음성 옵션 (Google Cloud TTS)
 
-| Voice Name          | 성별     | 특징                | SSML 지원 |
-| ------------------- | -------- | ------------------- | --------- |
-| ko-KR-Neural2-A     | 여성     | 차분함              | ✅        |
-| ko-KR-Neural2-B     | 여성     | 밝음                | ✅        |
-| **ko-KR-Neural2-C** | **남성** | **또렷함 (기본값)** | ✅        |
-| ko-KR-Wavenet-A     | 여성     | 자연스러움          | ✅        |
-| ko-KR-Wavenet-C     | 남성     | 자연스러움          | ✅        |
-| ko-KR-Standard-A    | 여성     | 비용 절약           | ✅        |
-| ko-KR-Standard-C    | 남성     | 비용 절약           | ✅        |
+| Voice Name          | 성별 | 특징                   |
+| ------------------- | ---- | ---------------------- |
+| ko-KR-Neural2-A     | 여성 | 차분함                 |
+| ko-KR-Neural2-B     | 여성 | 밝음                   |
+| ko-KR-Neural2-C     | 남성 | 또렷함                 |
+| **ko-KR-Wavenet-D** | 남성 | **자연스러움(기본값)** |
+| ko-KR-Wavenet-C     | 남성 | 자연스러움             |
+| ko-KR-Standard-A    | 여성 | 비용 절약              |
+| ko-KR-Standard-C    | 남성 | 비용 절약              |
 
 ### 가격 (월별 무료 한도)
 
@@ -404,15 +741,14 @@ equation.add_background_rectangle()  # 배경
 
 > 💡 8분 영상 15개/월 = ~37,500 글자 = **무료 한도의 약 4%** (사실상 무료!)
 
-### SSML 지원 태그
+### TTS 쉼(Pause) 규칙 (Gemini 2.5 TTS)
 
-```xml
-<break time='500ms'/>           <!-- 0.5초 침묵 -->
-<break time='1s'/>              <!-- 1초 침묵 -->
-<emphasis level='strong'>강조</emphasis>  <!-- 강조 -->
-<prosody rate='slow'>천천히</prosody>     <!-- 속도 조절 -->
-<prosody pitch='+2st'>높게</prosody>      <!-- 음높이 -->
-```
+| 구두점         | 효과          | 예시                         |
+| -------------- | ------------- | ---------------------------- |
+| `,` (쉼표)     | 짧은 쉼       | "미분은, 순간 변화율입니다." |
+| `.` (마침표)   | 보통 쉼       | "이것이 핵심입니다."         |
+| `...` (줄임표) | 긴 쉼, 망설임 | "그런데..."                  |
+| 문단 나눔      | 호흡          | (빈 줄로 구분)               |
 
 ---
 
@@ -451,6 +787,12 @@ Math-Video-Maker/
 ├── math_video_pipeline.py ← CLI 도구
 ├── .env                   ← API 키 설정
 ├── google-tts-key.json    ← Google Cloud 인증
+│
+├── assets/                ← 🔥 공용 에셋 폴더 (모든 프로젝트 공유)
+│   ├── characters/            # 캐릭터 PNG
+│   ├── objects/               # 물체 PNG
+│   └── icons/                 # 아이콘 PNG
+│
 ├── skills/                ← 가이드라인 문서
 │   ├── script-writer.md
 │   ├── scene-director.md
@@ -459,6 +801,7 @@ Math-Video-Maker/
 │   ├── code-validator.md
 │   ├── image-prompt-writer.md
 │   └── subtitle-designer.md
+│
 └── output/                ← 프로젝트별 출력
     └── {project_id}/
         ├── 0_audio/           # TTS 음성 + 타이밍
@@ -496,8 +839,17 @@ python math_video_pipeline.py images-check
 # 이미지 일괄 가져오기
 python math_video_pipeline.py images-import --source "C:/Downloads/backgrounds"
 
-# 렌더링
+# Manim 렌더링
 python math_video_pipeline.py render-all
+
+# SRT 자막 생성
+python math_video_pipeline.py subtitle-generate
+
+# 씬별 최종 합성 (배경 + Manim + 오디오 + 자막)
+python math_video_pipeline.py compose-all
+
+# 전체 영상 병합
+python math_video_pipeline.py merge-final
 
 # 도움말
 python math_video_pipeline.py help
@@ -514,10 +866,15 @@ python math_video_pipeline.py help
 | "계속"              | 중단된 지점부터 재개          |
 | "대본 수정"         | 대본 수정 모드                |
 | "씬 수정"           | 씬 분할 수정 모드             |
+| "에셋 체크"         | 🆕 필요한 에셋 확인 (assets/) |
+| "에셋 준비 완료"    | 🆕 에셋 재확인 후 다음 단계   |
+| "에셋 목록"         | 🆕 현재 보유 에셋 목록 표시   |
 | "s1 코드"           | 특정 씬 Manim 코드 생성       |
 | "프롬프트 내보내기" | 이미지 프롬프트 일괄 내보내기 |
 | "이미지 확인"       | 배경 이미지 준비 상태 확인    |
-| "렌더링"            | 렌더링 시작                   |
+| "렌더링"            | Manim 렌더링 시작             |
+| "자막 생성"         | SRT 자막 파일 생성            |
+| "합성"              | 최종 영상 합성 시작           |
 
 ---
 
@@ -572,7 +929,7 @@ s1_bg.png, s2_bg.png, s3_bg.png, ...
 사용자: "시작"
 Claude: 주제 물어봄
 사용자: "피타고라스 정리 3분 cyberpunk"
-Claude: 바로 전체 진행 (대본→씬→TTS→코드→렌더링)
+Claude: 바로 전체 진행 (대본→씬→에셋체크→TTS→코드→렌더링)
 ```
 
 ---
@@ -583,7 +940,10 @@ Claude: 바로 전체 진행 (대본→씬→TTS→코드→렌더링)
 - **Python은 API 호출용**: TTS, Whisper, 렌더링
 - **state.json으로 상태 추적**: 중단 후 재개 가능
 - **각 단계 승인 후 진행**: 사용자 확인 없이 다음 단계 안 넘어감
-- **Google Cloud TTS 사용**: SSML 완벽 지원, 월 100만 글자 무료
+- **Google Cloud TTS 사용**: 월 100만 글자 무료
+- **캐릭터/물체는 PNG 사용**: Manim으로 직접 그리면 품질 저하
+- **에셋은 루트 폴더**: `assets/` 폴더는 모든 프로젝트가 공유
+- **에셋 체크 단계 필수**: PNG 없으면 Manim 코드 생성 전에 사용자에게 요청
 
 ---
 
@@ -601,13 +961,17 @@ OPENAI_API_KEY=sk-proj-your-key-here
 
 ## 📊 current_phase 값 목록
 
-| phase 값        | 의미            | 다음 단계      |
-| --------------- | --------------- | -------------- |
-| initialized     | 프로젝트 생성됨 | 대본 작성      |
-| script_approved | 대본 승인됨     | 씬 분할        |
-| scenes_approved | 씬 분할 승인됨  | TTS 생성       |
-| tts_completed   | TTS 생성 완료   | Manim 코드     |
-| manim_coding    | 코드 작성 중    | 계속 코드 작성 |
-| manim_completed | 모든 코드 완료  | 렌더링         |
-| rendering       | 렌더링 중       | 완료 대기      |
-| completed       | 모든 작업 완료  | -              |
+| phase 값        | 의미              | 다음 단계         |
+| --------------- | ----------------- | ----------------- |
+| initialized     | 프로젝트 생성됨   | 대본 작성         |
+| script_approved | 대본 승인됨       | 씬 분할           |
+| scenes_approved | 씬 분할 승인됨    | 에셋 체크         |
+| assets_checked  | 에셋 확인 완료    | TTS 생성          |
+| tts_completed   | TTS 생성 완료     | Manim 코드        |
+| manim_coding    | 코드 작성 중      | 계속 코드 작성    |
+| manim_completed | 모든 코드 완료    | 이미지 프롬프트   |
+| images_ready    | 배경 이미지 준비  | Manim 렌더링      |
+| rendering       | Manim 렌더링 중   | 렌더링 완료 대기  |
+| rendered        | Manim 렌더링 완료 | 자막 및 최종 합성 |
+| composing       | 최종 합성 중      | 합성 완료 대기    |
+| completed       | 모든 작업 완료    | -                 |

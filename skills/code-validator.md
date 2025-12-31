@@ -1,7 +1,9 @@
 # Code Validator Skill
+
 ## Manim 코드 검증 및 자동 수정 전문가
 
 ### 역할 정의
+
 당신은 Manim 코드의 품질 보증 전문가입니다. 생성된 코드를 검증하고, 오류를 찾아 자동으로 수정합니다.
 
 ---
@@ -9,8 +11,11 @@
 ## 검증 프로세스
 
 ### Phase 1: 문법 검증
+
 ### Phase 2: 로직 검증
+
 ### Phase 3: 타이밍 검증
+
 ### Phase 4: 스타일 검증
 
 ---
@@ -20,6 +25,7 @@
 ### A. MathTex 검증
 
 #### 체크 항목 1: r-string 사용
+
 ```python
 # ❌ 오류
 MathTex("\frac{1}{2}")
@@ -32,6 +38,7 @@ pattern = r'MathTex\([^r]"'
 ```
 
 #### 체크 항목 2: 중괄호 짝 맞추기
+
 ```python
 # ❌ 오류
 MathTex(r"\frac{x^{2}{y}")  # } 하나 부족
@@ -47,6 +54,7 @@ def check_braces(latex_string):
 ```
 
 #### 체크 항목 3: 이스케이프 문자
+
 ```python
 # ❌ 오류
 MathTex(r"\text{x = 5\n}")  # \n은 의도하지 않은 줄바꿈
@@ -61,6 +69,7 @@ MathTex(r"\text{x = 5} \\ \text{y = 3}")
 ### B. Text 검증
 
 #### 체크 항목 1: 한글 폰트
+
 ```python
 # ❌ 오류
 Text("안녕하세요")
@@ -74,6 +83,7 @@ pattern = r'Text\([^)]*[가-힣]+[^)]*\)'
 ```
 
 #### 체크 항목 2: 큰따옴표/작은따옴표 일관성
+
 ```python
 # 권장: 큰따옴표 사용
 Text("텍스트", font="Noto Sans KR")
@@ -82,6 +92,7 @@ Text("텍스트", font="Noto Sans KR")
 ### C. always_redraw 검증
 
 #### 체크 항목: lambda 함수
+
 ```python
 # ❌ 오류
 number = always_redraw(
@@ -104,6 +115,7 @@ pattern = r'always_redraw\(\s*[^l]'  # lambda로 시작 안 함
 ### A. 애니메이션 체인 검증
 
 #### 체크 항목 1: Transform 타겟 존재 확인
+
 ```python
 # ❌ 오류
 self.play(Transform(obj1, obj2))  # obj2 미생성
@@ -113,11 +125,12 @@ obj2 = MathTex(r"...")
 self.play(Transform(obj1, obj2))
 
 # 검증 로직
-# Transform/ReplacementTransform의 두 번째 인자가 
+# Transform/ReplacementTransform의 두 번째 인자가
 # 이전에 생성되었는지 확인
 ```
 
 #### 체크 항목 2: self.add vs self.play
+
 ```python
 # ❌ 비효율적
 self.play(FadeIn(background))  # 배경은 그냥 add
@@ -131,6 +144,7 @@ self.play(Write(equation))
 ### B. ValueTracker 검증
 
 #### 체크 항목: Tracker 초기화 → 사용
+
 ```python
 # ❌ 오류
 number = always_redraw(lambda:
@@ -146,7 +160,90 @@ number = always_redraw(lambda:
 
 ### C. 좌표 변환 검증
 
+### D. 3D 씬 일관성 검증
+
+#### 체크 항목 1: 3D 객체 + Scene 클래스 일치
+
+```python
+# ❌ 오류: 일반 Scene에서 3D 객체 사용
+class Scene7(Scene):
+    def construct(self):
+        cube = Cube()  # 3D 객체인데 Scene 클래스!
+
+# ✅ 수정: ThreeDScene 사용
+class Scene7(ThreeDScene):
+    def construct(self):
+        self.set_camera_orientation(phi=60*DEGREES, theta=-45*DEGREES)
+        cube = Cube()
+
+# 검증 로직
+def check_3d_scene_class(code):
+    has_3d_objects = any(obj in code for obj in ['Cube(', 'Cylinder(', 'Sphere(', 'Cone(', 'Surface('])
+    uses_3d_scene = 'ThreeDScene' in code
+
+    if has_3d_objects and not uses_3d_scene:
+        return {
+            "type": "3D_SCENE_MISSING",
+            "message": "3D 객체 사용 시 ThreeDScene 필수",
+            "suggestion": "class Scene7(Scene): → class Scene7(ThreeDScene):"
+        }
+    return None
+```
+
+#### 체크 항목 2: ThreeDScene에서 카메라 설정 확인
+
+```python
+# ❌ 오류: 카메라 설정 없음 (정면 뷰 = 2D처럼 보임)
+class Scene7(ThreeDScene):
+    def construct(self):
+        cube = Cube()
+        self.add(cube)
+
+# ✅ 수정: 카메라 설정 추가
+class Scene7(ThreeDScene):
+    def construct(self):
+        self.set_camera_orientation(phi=60*DEGREES, theta=-45*DEGREES)
+        cube = Cube()
+        self.play(Create(cube))
+
+# 검증 로직
+def check_camera_orientation(code):
+    uses_3d_scene = 'ThreeDScene' in code
+    has_camera_setup = 'set_camera_orientation' in code
+
+    if uses_3d_scene and not has_camera_setup:
+        return {
+            "type": "CAMERA_SETUP_MISSING",
+            "message": "ThreeDScene에서 카메라 설정 누락 - 정면 뷰는 2D처럼 보임",
+            "suggestion": "self.set_camera_orientation(phi=60*DEGREES, theta=-45*DEGREES)"
+        }
+    return None
+```
+
+#### 체크 항목 3: Cube vs Square 혼동
+
+```python
+# ❌ 오류: 대본에 "정육면체"인데 Square 사용
+square = Square(side_length=2)  # 2D!
+
+# ✅ 수정
+cube = Cube(side_length=2)  # 3D!
+
+# 검증 로직 (scene_config와 함께 사용)
+def check_cube_vs_square(code, scene_config):
+    # scene_config에서 is_3d 확인
+    if scene_config.get("is_3d"):
+        if 'Square(' in code and 'Cube(' not in code:
+            return {
+                "type": "WRONG_OBJECT_TYPE",
+                "message": "3D 씬인데 Square() 사용됨 - Cube() 필요",
+                "suggestion": "Square(side_length=2) → Cube(side_length=2)"
+            }
+    return None
+```
+
 #### 체크 항목: axes.c2p 사용
+
 ```python
 # ❌ 오류
 dot = Dot([2, 4, 0])  # 화면 좌표 직접 사용
@@ -164,6 +261,7 @@ dot = Dot(axes.c2p(2, 4))  # 좌표계 변환
 ### A. wait() 태그 검증
 
 #### 체크 항목 1: 모든 wait()에 주석
+
 ```python
 # ❌ 오류
 self.wait(1.5)
@@ -176,6 +274,7 @@ pattern = r'self\.wait\([^)]+\)(?!\s*#\s*wait_tag)'
 ```
 
 #### 체크 항목 2: 태그 형식 정확성
+
 ```python
 # ❌ 오류
 self.wait(1)  # wait_s1_1 (tag 누락)
@@ -188,6 +287,7 @@ pattern = r'# wait_tag_s\d+_\w+'
 ```
 
 #### 체크 항목 3: 태그 중복 확인
+
 ```python
 # ❌ 오류
 self.wait(1)  # wait_tag_s1_1
@@ -208,22 +308,22 @@ def calculate_total_time(code):
     코드에서 총 애니메이션 시간 추출
     """
     total = 0.0
-    
+
     # run_time 추출
     run_times = re.findall(r'run_time\s*=\s*([0-9.]+)', code)
     total += sum(float(t) for t in run_times)
-    
+
     # wait() 추출
     waits = re.findall(r'self\.wait\(([0-9.]+)\)', code)
     total += sum(float(w) for w in waits)
-    
+
     # run_time 없는 play() (기본 1초)
     plays_without_runtime = re.findall(
         r'self\.play\([^)]+\)(?!.*run_time)',
         code
     )
     total += len(plays_without_runtime) * 1.0
-    
+
     return total
 ```
 
@@ -236,12 +336,12 @@ def verify_timing(animation_time, tts_length, tolerance=0.1):
     """
     diff = abs(animation_time - tts_length)
     max_diff = tts_length * tolerance
-    
+
     if diff > max_diff:
         # 보정 필요
         correction = tts_length - animation_time
         return f"self.wait({correction:.2f})  # wait_tag_sync_correction"
-    
+
     return "OK"
 ```
 
@@ -252,6 +352,7 @@ def verify_timing(animation_time, tts_length, tolerance=0.1):
 ### A. 컬러 팔레트 준수
 
 #### 체크 항목: 색상 일관성
+
 ```python
 # 정의된 팔레트
 COLOR_PALETTE = {
@@ -274,6 +375,7 @@ x_eq = MathTex("x", color=COLOR_PALETTE["variable"])
 ### B. 스타일별 적용 확인
 
 #### 미니멀
+
 ```python
 # 필수: 글로우 없음
 equation.set_stroke(width=0)
@@ -282,6 +384,7 @@ equation.set_stroke(width=0)
 ```
 
 #### 사이버펑크
+
 ```python
 # 필수: 글로우 효과
 equation.set_stroke(width=15, opacity=0.3, color=CYAN)
@@ -294,16 +397,19 @@ self.add(glow, equation)
 ### C. 난이도별 적용 확인
 
 #### 입문
+
 - TransformMatchingTex 사용 금지 → Transform만
 - ValueTracker 사용 금지
 - 3D 사용 금지
 
 #### 중급
+
 - TransformMatchingTex 사용 OK
 - ValueTracker 사용 OK
 - 3D 선택 사용
 
 #### 고급
+
 - 모든 기능 사용 OK
 - always_redraw 적극 권장
 
@@ -312,6 +418,7 @@ self.add(glow, equation)
 ## 자동 수정 패턴
 
 ### 패턴 1: r-string 추가
+
 ```python
 def fix_mathtext_r_string(code):
     # MathTex("...") → MathTex(r"...")
@@ -321,6 +428,7 @@ def fix_mathtext_r_string(code):
 ```
 
 ### 패턴 2: 폰트 추가
+
 ```python
 def add_korean_font(code):
     # Text("한글") → Text("한글", font="Noto Sans KR")
@@ -330,34 +438,88 @@ def add_korean_font(code):
 ```
 
 ### 패턴 3: wait() 태그 추가
+
 ```python
 def add_wait_tags(code, scene_id):
     lines = code.split('\n')
     wait_count = 0
-    
+
     for i, line in enumerate(lines):
         if 'self.wait(' in line and 'wait_tag' not in line:
             wait_count += 1
             # 주석 추가
             lines[i] = line.rstrip() + f"  # wait_tag_{scene_id}_{wait_count}"
-    
+
     return '\n'.join(lines)
 ```
 
 ### 패턴 4: 타이밍 보정
+
 ```python
 def add_timing_correction(code, target_time):
     current_time = calculate_total_time(code)
-    
+
     if abs(current_time - target_time) > target_time * 0.1:
         correction = target_time - current_time
-        
+
         # construct() 끝에 추가
         correction_code = f"\n        self.wait({correction:.2f})  # wait_tag_sync_correction\n"
-        
+
         # 마지막 wait() 뒤에 삽입
         code = code.rstrip() + correction_code
-    
+
+    return code
+```
+
+### 패턴 5: 3D Scene 클래스 수정
+
+```python
+def fix_3d_scene_class(code):
+    """
+    3D 객체 사용 시 Scene → ThreeDScene 자동 변환
+    """
+    three_d_objects = ['Cube(', 'Cylinder(', 'Sphere(', 'Cone(', 'Surface(']
+    has_3d = any(obj in code for obj in three_d_objects)
+
+    if has_3d and 'ThreeDScene' not in code:
+        # Scene → ThreeDScene
+        code = re.sub(
+            r'class (\w+)\(Scene\):',
+            r'class \1(ThreeDScene):',
+            code
+        )
+
+        # set_camera_orientation 추가 (def construct 다음 줄)
+        if 'set_camera_orientation' not in code:
+            code = re.sub(
+                r'(def construct\(self\):)',
+                r'\1\n        self.set_camera_orientation(phi=60*DEGREES, theta=-45*DEGREES)',
+                code
+            )
+
+    return code
+```
+
+### 패턴 6: Cube/Square 자동 수정
+
+```python
+def fix_cube_vs_square(code, scene_config):
+    """
+    is_3d: true인 씬에서 Square → Cube 자동 변환
+    """
+    if scene_config.get("is_3d") and 'Square(' in code:
+        # Square → Cube (side_length 파라미터 유지)
+        code = re.sub(
+            r'Square\(side_length=([^)]+)\)',
+            r'Cube(side_length=\1)',
+            code
+        )
+        # Square → Cube (일반)
+        code = re.sub(
+            r'Square\(\)',
+            r'Cube()',
+            code
+        )
     return code
 ```
 
@@ -373,10 +535,10 @@ class ManimCodeValidator:
         self.tts_length = scene_config["duration"]
         self.difficulty = scene_config["difficulty"]
         self.style = scene_config["style"]
-        
+
         self.errors = []
         self.warnings = []
-    
+
     def validate(self):
         """전체 검증 실행"""
         # Phase 1: 문법
@@ -384,36 +546,42 @@ class ManimCodeValidator:
         self.check_mathtext_braces()
         self.check_text_korean_font()
         self.check_always_redraw_lambda()
-        
+
         # Phase 2: 로직
         self.check_object_existence()
         self.check_valuetracker_initialization()
-        
+        self.check_3d_scene_consistency()  # 🆕 추가
+        self.check_camera_orientation()     # 🆕 추가
+        self.check_cube_vs_square()         # 🆕 추가
+
+
         # Phase 3: 타이밍
         self.check_wait_tags()
         self.check_total_timing()
-        
+
         # Phase 4: 스타일
         self.check_color_palette()
         self.check_style_compliance()
         self.check_difficulty_compliance()
-        
+
         return {
             "errors": self.errors,
             "warnings": self.warnings,
             "status": "OK" if not self.errors else "FAILED"
         }
-    
+
     def auto_fix(self):
         """자동 수정 실행"""
         fixed_code = self.code
-        
+
         # 수정 패턴 적용
         fixed_code = fix_mathtext_r_string(fixed_code)
         fixed_code = add_korean_font(fixed_code)
         fixed_code = add_wait_tags(fixed_code, self.scene_id)
         fixed_code = add_timing_correction(fixed_code, self.tts_length)
-        
+         # 🆕 3D 수정 패턴 추가
+        fixed_code = fix_3d_scene_class(fixed_code)
+        fixed_code = fix_cube_vs_square(fixed_code, self.scene_config)
         return fixed_code
 ```
 
@@ -422,6 +590,7 @@ class ManimCodeValidator:
 ## 출력 형식
 
 ### 검증 실패 시
+
 ```json
 {
   "status": "FAILED",
@@ -430,8 +599,8 @@ class ManimCodeValidator:
       "type": "SYNTAX_ERROR",
       "line": 15,
       "message": "MathTex without r-string",
-      "code_snippet": 'MathTex("\\frac{1}{2}")',
-      "suggestion": 'MathTex(r"\\frac{1}{2}")'
+      "code_snippet": "MathTex(\"\\frac{1}{2}\")",
+      "suggestion": "MathTex(r\"\\frac{1}{2}\")"
     },
     {
       "type": "MISSING_TAG",
@@ -452,6 +621,7 @@ class ManimCodeValidator:
 ```
 
 ### 자동 수정 완료 시
+
 ```json
 {
   "status": "FIXED",
@@ -463,6 +633,7 @@ class ManimCodeValidator:
 ```
 
 ### 검증 통과 시
+
 ```json
 {
   "status": "OK",
@@ -481,6 +652,7 @@ class ManimCodeValidator:
 다음은 자동 수정 불가능하며 재작성 필요:
 
 ### 1. 논리적 모순
+
 ```python
 # 삭제된 객체를 다시 사용
 self.remove(equation)
@@ -488,6 +660,7 @@ self.play(Transform(equation, new_eq))  # 에러!
 ```
 
 ### 2. 순환 참조
+
 ```python
 # always_redraw 내부에서 자신 참조
 number = always_redraw(lambda:
@@ -496,12 +669,14 @@ number = always_redraw(lambda:
 ```
 
 ### 3. 잘못된 좌표계
+
 ```python
 # axes 없이 c2p 사용
 dot = Dot(axes.c2p(1, 2))  # axes 미정의!
 ```
 
 이런 경우:
+
 ```json
 {
   "status": "CRITICAL_ERROR",
@@ -525,6 +700,7 @@ dot = Dot(axes.c2p(1, 2))  # axes 미정의!
 ## 최종 체크리스트
 
 코드 검증 완료 후 확인:
+
 - [ ] 모든 MathTex에 r-string
 - [ ] 중괄호 짝 맞음
 - [ ] 모든 한글 Text에 폰트
@@ -534,10 +710,15 @@ dot = Dot(axes.c2p(1, 2))  # axes 미정의!
 - [ ] 스타일 가이드 준수
 - [ ] 난이도별 제약 준수
 - [ ] 논리적 오류 없음
+- [ ] 3D 객체 사용 시 ThreeDScene 클래스인가?
+- [ ] ThreeDScene에서 set_camera_orientation() 호출했는가?
+- [ ] scene_config의 is_3d와 코드의 Scene 클래스가 일치하는가?
+- [ ] 정육면체가 Cube()로 구현되었는가? (Square 아님)
 
 ---
 
 ## 금지 사항
+
 ❌ 검증 없이 코드 통과
 ❌ 치명적 오류 무시
 ❌ 타이밍 오차 20% 초과 허용
