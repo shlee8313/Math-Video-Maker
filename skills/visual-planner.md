@@ -143,10 +143,14 @@ number = always_redraw(lambda:
 
 ```python
 # ⚠️ 3D 도형은 반드시 ThreeDScene 클래스에서 사용!
-Cube(side_length=2, fill_opacity=0.7, fill_color=ORANGE)
-Cylinder(radius=1, height=3, fill_opacity=0.7)
-Sphere(radius=1, fill_opacity=0.7)
-Cone(base_radius=1, height=2, fill_opacity=0.7)
+# 크기 기준: 단독=3.0, 캐릭터와 함께=2.0, 강조=4.0
+CUBE_SOLO = 3.0
+SPHERE_SOLO = 2.0
+
+Cube(side_length=CUBE_SOLO, fill_opacity=0.7, fill_color=ORANGE)
+Cylinder(radius=1.2, height=3, fill_opacity=0.7)  # 단독: (1.2, 3.0)
+Sphere(radius=SPHERE_SOLO, fill_opacity=0.7)
+Cone(base_radius=1.2, height=2, fill_opacity=0.7)
 
 → 사용 시기: 부피, 입체 도형, cm³ 관련 개념
 → 필수 조건: ThreeDScene + set_camera_orientation()
@@ -427,8 +431,8 @@ glow: False
 #### 1. Flash (번쩍임)
 
 ```python
-# 정답 도출
-answer = MathTex("x = 3", color=GREEN).scale(2)
+# 정답 도출 (강조: scale=1.8)
+answer = MathTex("x = 3", font_size=64, color=GREEN).scale(1.8)
 self.play(Write(answer))
 self.play(Flash(answer, color=GOLD, flash_radius=1.5))
 self.wait(2)
@@ -507,8 +511,17 @@ class My3DScene(ThreeDScene):
         # ⚠️ 카메라 설정 필수 (없으면 정면=2D처럼 보임)
         self.set_camera_orientation(phi=60*DEGREES, theta=-45*DEGREES)
 
+        # 3D 크기 기준: 단독=3.0, 캐릭터와 함께=2.0, 강조=4.0
+        CUBE_SOLO = 3.0
+
         # 3D 객체 생성
-        cube = Cube(side_length=2, fill_opacity=0.7, fill_color=ORANGE)
+        cube = Cube(side_length=CUBE_SOLO, fill_opacity=0.7, fill_color=ORANGE)
+        cube.move_to(ORIGIN)
+
+        # 3D 텍스트는 고정 필수!
+        label = MathTex(r"V = a^3", font_size=64, color=YELLOW)
+        label.scale(1.5)  # 단독이라 크게
+        self.add_fixed_in_frame_mobjects(label)
 
         # 회전 애니메이션
         self.play(Create(cube))
