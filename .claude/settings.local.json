@@ -41,7 +41,12 @@
       "Bash(python math_video_pipeline.py:*)",
       "Bash(powershell -Command \"\\(Get-Content ''C:\\\\PROJECT\\\\Math-Video-Maker\\\\CLAUDE.md'' -Raw\\).Length\")",
       "Bash(del \"C:\\\\PROJECT\\\\Math-Video-Maker\\\\skills\\\\GOOGLE_TTS_WHISPER_GUIDE.md\")",
-      "Bash(powershell -Command \"Remove-Item ''C:\\\\PROJECT\\\\Math-Video-Maker\\\\skills\\\\GOOGLE_TTS_WHISPER_GUIDE.md'' -Force\")"
+      "Bash(powershell -Command \"Remove-Item ''C:\\\\PROJECT\\\\Math-Video-Maker\\\\skills\\\\GOOGLE_TTS_WHISPER_GUIDE.md'' -Force\")",
+      "Bash(git -C \"C:/PROJECT/Math-Video-Maker\" status)",
+      "Bash(git -C \"C:/PROJECT/Math-Video-Maker\" log -1 --oneline)",
+      "Bash(git -C \"C:/PROJECT/Math-Video-Maker\" diff --name-only)",
+      "Bash(git -C \"C:/PROJECT/Math-Video-Maker\" add .claude/settings.local.json)",
+      "Bash(git -C \"C:/PROJECT/Math-Video-Maker\" commit -m \"$\\(cat <<''EOF''\nClaude Code 로컬 설정 업데이트\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }
