@@ -37,7 +37,7 @@ if sys.stdout.encoding != 'utf-8':
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 # ============================================================================
-# OpenAI 및 Google Cloud TTS 클라이언트 초기화
+# OpenAI 클라이언트 초기화 (TTS + Whisper)
 # ============================================================================
 
 try:
@@ -45,7 +45,7 @@ try:
     OPENAI_AVAILABLE = True
 except ImportError:
     OPENAI_AVAILABLE = False
-    print("⚠️  OpenAI 라이브러리가 설치되지 않았습니다 (Whisper용).")
+    print("⚠️  OpenAI 라이브러리가 설치되지 않았습니다 (TTS/Whisper용).")
     print("   설치: pip install openai")
 
 try:
@@ -55,6 +55,27 @@ except ImportError:
     GOOGLE_TTS_AVAILABLE = False
     print("⚠️  Google Cloud TTS 라이브러리가 설치되지 않았습니다.")
     print("   설치: pip install google-cloud-texttospeech")
+
+# Gemini TTS (google-genai)
+try:
+    from google import genai
+    from google.genai import types
+    GEMINI_TTS_AVAILABLE = True
+except ImportError:
+    GEMINI_TTS_AVAILABLE = False
+    print("⚠️  Gemini TTS 라이브러리가 설치되지 않았습니다.")
+    print("   설치: pip install google-genai")
+
+import wave
+
+
+# ============================================================================
+# 커스텀 예외 클래스
+# ============================================================================
+
+class QuotaExceededException(Exception):
+    """API 일일 한도 초과 예외"""
+    pass
 
 
 def get_openai_client() -> Optional['OpenAI']:
@@ -110,6 +131,35 @@ def get_google_tts_client() -> Optional['texttospeech.TextToSpeechClient']:
         return None
 
 
+def get_gemini_client() -> Optional['genai.Client']:
+    """Gemini 클라이언트 생성 (TTS용)"""
+    if not GEMINI_TTS_AVAILABLE:
+        return None
+
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        # .env 파일에서 로드 시도
+        env_file = Path(".env")
+        if env_file.exists():
+            with open(env_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("GOOGLE_API_KEY="):
+                        api_key = line.split("=", 1)[1].strip().strip('"\'')
+                        break
+
+    if not api_key:
+        print("❌ GOOGLE_API_KEY가 설정되지 않았습니다 (Gemini TTS용).")
+        print("   .env 파일에 GOOGLE_API_KEY=... 를 추가하세요.")
+        return None
+
+    try:
+        return genai.Client(api_key=api_key)
+    except Exception as e:
+        print(f"❌ Gemini 클라이언트 초기화 실패: {e}")
+        return None
+
+
 # ============================================================================
 # 설정 및 상수
 # ============================================================================
@@ -122,25 +172,18 @@ STATE_FILE = PROJECT_ROOT / "state.json"
 OUTPUT_DIR = PROJECT_ROOT / "output"
 SKILLS_DIR = PROJECT_ROOT / "skills"
 
-# TTS 설정 (Google Cloud TTS - Chirp 3 HD 포함)
+# TTS 설정 (OpenAI TTS)
 TTS_CONFIG = {
     "voices": {
-        # 기존 Neural2/Wavenet/Standard 성우
-        "ko-KR-Neural2-A": "여성 (차분함)",
-        "ko-KR-Neural2-B": "여성 (밝음)",
-        "ko-KR-Neural2-C": "남성 (또렷함)",
-        "ko-KR-Wavenet-A": "여성 (자연스러움)",
-        "ko-KR-Wavenet-C": "남성 (자연스러움)",
-        "ko-KR-Standard-A": "여성 (비용 절약)",
-        "ko-KR-Standard-C": "남성 (비용 절약)",
-        # Chirp 3 HD 성우 (고품질 스트리밍)
-        "ko-KR-Chirp3-HD-Charon": "남성 (중저음, 신뢰감) [HD]",
-        "ko-KR-Chirp3-HD-Aoede": "여성 (차분함, 지적임) [HD]",
-        "ko-KR-Chirp3-HD-Kore": "여성 (밝음, 생기) [HD]",
-        "ko-KR-Chirp3-HD-Puck": "남성 (장난기, 에너지) [HD]"
+        "alloy": "중성적, 균형잡힌 (기본값)",
+        "echo": "남성적, 차분함",
+        "fable": "영국식 억양",
+        "onyx": "남성적, 깊은 목소리",
+        "nova": "여성적, 밝고 친근",
+        "shimmer": "여성적, 부드러움"
     },
-    "default_voice": "ko-KR-Chirp3-HD-Charon",
-    "language_code": "ko-KR",
+    "default_voice": "onyx",
+    "model": "tts-1-hd",
     "audio_encoding": "MP3"
 }
 
@@ -412,10 +455,35 @@ class StateManager:
         
         self._state = state
         self.save()
-        
+
         print(f"✅ state.json 업데이트: tts_completed")
         print(f"   🎤 TTS 완료: {len(audio_files)}개 파일")
-    
+
+    def update_tts_partial(self, project_id: str, audio_files: List[str], resume_from: int) -> None:
+        """TTS 부분 완료: 한도 초과로 중단됨"""
+        state = self.load()
+
+        state['current_phase'] = 'tts_partial'
+        state['tts_resume_from'] = resume_from
+
+        # files 업데이트
+        if 'files' not in state:
+            state['files'] = {
+                'script': None,
+                'tts_script': None,
+                'scenes': None,
+                'audio': [],
+                'manim': [],
+                'subtitles': []
+            }
+
+        state['files']['audio'] = audio_files
+
+        self._state = state
+        self.save()
+
+        print(f"⚠️  state.json 업데이트: tts_partial (s{resume_from}부터 재개 필요)")
+
     def update_manim_scene_completed(self, scene_id: str, manim_file: str) -> None:
         """Step 5 진행: 씬별 Manim 코드 완료 후"""
         state = self.load()
@@ -713,225 +781,632 @@ class ProjectManager:
 # ============================================================================
 
 class TTSGenerator:
-    """Google Cloud TTS - Chirp 3 HD 스트리밍 + 기존 API 지원"""
+    """OpenAI TTS - 문장별 분할 생성"""
+
+    # OpenAI TTS 지원 음성
+    OPENAI_VOICES = {
+        "alloy": "중성적, 균형잡힌 (기본값)",
+        "echo": "남성적, 차분함",
+        "fable": "영국식 억양",
+        "onyx": "남성적, 깊은 목소리",
+        "nova": "여성적, 밝고 친근",
+        "shimmer": "여성적, 부드러움",
+    }
 
     def __init__(self, state_manager: StateManager):
         self.state = state_manager
-        self.tts_client = get_google_tts_client()
         self.openai_client = get_openai_client()
-    
-    def _is_chirp_hd_voice(self, voice_name: str) -> bool:
-        """Chirp 3 HD 성우인지 확인"""
-        return "Chirp3-HD" in voice_name
-    
+
+    def _split_into_sentences(self, text: str) -> List[str]:
+        """텍스트를 문장 단위로 분할 (줄바꿈 기준)
+
+        TTS 녹음을 위해 각 줄을 개별 문장으로 처리합니다.
+        - \n\n (빈 줄): 문단 구분
+        - \n (줄바꿈): 문장 구분
+        """
+        # 모든 줄바꿈으로 분할 (빈 줄이든 단일 줄바꿈이든)
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
+
+        return lines
+
+    def _save_wav(self, filename: Path, pcm_data: bytes, channels: int = 1, rate: int = 24000, sample_width: int = 2):
+        """PCM 데이터를 WAV 파일로 저장"""
+        with wave.open(str(filename), "wb") as wf:
+            wf.setnchannels(channels)
+            wf.setsampwidth(sample_width)
+            wf.setframerate(rate)
+            wf.writeframes(pcm_data)
+
+    def _get_wav_duration(self, filename: Path) -> float:
+        """WAV 파일의 재생 시간 계산"""
+        try:
+            with wave.open(str(filename), "rb") as wf:
+                frames = wf.getnframes()
+                rate = wf.getframerate()
+                return frames / float(rate)
+        except:
+            return 0.0
+
+    def _save_partial_timing(self, audio_dir: Path, scene_id: str, voice_name: str,
+                             sentence_results: list, audio_files: list, total_duration: float):
+        """부분 완료된 TTS 타이밍 저장 (한도 초과 시 사용)"""
+        timing_file = audio_dir / f"{scene_id}_timing_partial.json"
+        timing_data = {
+            "scene_id": scene_id,
+            "voice": voice_name,
+            "total_duration": total_duration,
+            "sentence_count": len(sentence_results),
+            "sentences": sentence_results,
+            "audio_files": audio_files,
+            "created_at": datetime.now().isoformat(),
+            "status": "partial"  # 부분 완료 표시
+        }
+        with open(timing_file, 'w', encoding='utf-8') as f:
+            json.dump(timing_data, f, ensure_ascii=False, indent=2)
+        print(f"   📁 부분 저장: {timing_file}")
+
+    def _generate_openai_tts(self, text: str, voice: str, output_file: Path, max_retries: int = 3) -> bool:
+        """OpenAI TTS로 음성 생성 (MP3 출력)"""
+        import time
+
+        for attempt in range(max_retries):
+            try:
+                response = self.openai_client.audio.speech.create(
+                    model="tts-1-hd",  # 고품질 모델
+                    voice=voice,
+                    input=text,
+                    response_format="mp3"
+                )
+
+                # MP3 파일로 저장
+                mp3_file = output_file.with_suffix('.mp3')
+                response.stream_to_file(str(mp3_file))
+
+                # 성공 후 짧은 대기 (Rate limit 방지)
+                time.sleep(0.5)
+                return True
+
+            except Exception as e:
+                error_str = str(e).lower()
+                if "429" in str(e) or "rate" in error_str:
+                    wait_time = 5 * (2 ** attempt)  # 5, 10, 20초
+                    print(f"      ⏳ Rate limit - {wait_time}초 대기 후 재시도 ({attempt+1}/{max_retries})")
+                    time.sleep(wait_time)
+                else:
+                    print(f"      ❌ OpenAI TTS 실패: {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(2)
+
+        return False
+
+    def _get_mp3_duration(self, filename: Path) -> float:
+        """MP3 파일의 재생 시간 계산 (mutagen 또는 ffprobe 사용)"""
+        try:
+            # mutagen 시도
+            from mutagen.mp3 import MP3
+            audio = MP3(str(filename))
+            return audio.info.length
+        except ImportError:
+            pass
+        except Exception:
+            pass
+
+        try:
+            # ffprobe 시도
+            import subprocess
+            result = subprocess.run(
+                ['ffprobe', '-v', 'quiet', '-show_entries', 'format=duration',
+                 '-of', 'csv=p=0', str(filename)],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return float(result.stdout.strip())
+        except Exception:
+            pass
+
+        return 0.0
+
+    def _extract_voice_name(self, voice_setting: str) -> str:
+        """설정에서 OpenAI 음성 이름 추출"""
+        voice_setting_lower = voice_setting.lower()
+        for voice_name in self.OPENAI_VOICES.keys():
+            if voice_name in voice_setting_lower:
+                return voice_name
+        return "onyx"  # 기본값
+
     def generate(
         self,
         scene_id: str,
         text: str,
         voice: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
-        """TTS 음성 생성 + Whisper 타이밍 측정"""
-
-        if not self.tts_client:
-            print("❌ Google TTS 클라이언트를 초기화할 수 없습니다.")
-            return None
+        """OpenAI TTS - 문장별 음성 생성"""
 
         if not self.openai_client:
-            print("❌ OpenAI 클라이언트를 초기화할 수 없습니다 (Whisper 타이밍 분석용).")
+            print("❌ OpenAI 클라이언트를 초기화할 수 없습니다.")
+            print("   .env 파일에 OPENAI_API_KEY를 설정하세요.")
             return None
-        
+
         project_dir = OUTPUT_DIR / self.state.get("project_id", "unknown")
         audio_dir = project_dir / "0_audio"
         audio_dir.mkdir(parents=True, exist_ok=True)
-        
-        # 음성 설정
-        if voice is None:
-            voice = self.state.get("settings.voice", TTS_CONFIG["default_voice"])
-        
-        audio_file = audio_dir / f"{scene_id}_audio.mp3"
-        timing_file = audio_dir / f"{scene_id}_timing.json"
-        
-        print(f"\n🎤 [{scene_id}] TTS 생성 중...")
-        print(f"   텍스트: {text[:50]}..." if len(text) > 50 else f"   텍스트: {text}")
-        print(f"   음성: {voice}")
-        
-        try:
-            # Chirp 3 HD vs 기존 API 분기
-            if self._is_chirp_hd_voice(voice):
-                print(f"   🌟 Chirp 3 HD 스트리밍 모드")
-                self._generate_chirp_hd(audio_file, text, voice)
+
+        # 음성 설정 (기본값: onyx)
+        voice_setting = voice or self.state.get("settings.voice", "onyx")
+        voice_name = self._extract_voice_name(voice_setting)
+
+        print(f"\n🎤 [{scene_id}] TTS 생성 중... (OpenAI)")
+        print(f"   음성: {voice_name}")
+
+        # 텍스트를 문장 단위로 분할
+        sentences = self._split_into_sentences(text)
+        print(f"   문장 수: {len(sentences)}개")
+
+        sentence_results = []
+        total_duration = 0.0
+        audio_files = []
+
+        for idx, sentence in enumerate(sentences, 1):
+            sentence_id = f"{scene_id}_{idx}"
+            audio_file = audio_dir / f"{sentence_id}.mp3"
+
+            # 문장 미리보기 (너무 길면 자름)
+            preview = sentence[:40] + "..." if len(sentence) > 40 else sentence
+            print(f"      [{idx}/{len(sentences)}] {preview}")
+
+            # OpenAI TTS 생성
+            success = self._generate_openai_tts(sentence, voice_name, audio_file)
+
+            if success:
+                duration = self._get_mp3_duration(audio_file)
+                sentence_results.append({
+                    "sentence_id": sentence_id,
+                    "sentence_index": idx,
+                    "text": sentence,
+                    "audio_file": str(audio_file),
+                    "start": total_duration,
+                    "end": total_duration + duration,
+                    "duration": duration
+                })
+                audio_files.append(str(audio_file))
+                total_duration += duration
+                print(f"         ✅ {duration:.2f}초")
             else:
-                print(f"   📢 기존 Neural2/Wavenet 모드")
-                self._generate_standard(audio_file, text, voice)
-            
-            print(f"   ✅ 음성 파일: {audio_file.name}")
+                print(f"         ❌ 실패")
 
-        except Exception as e:
-            print(f"   ❌ TTS 생성 실패: {e}")
+        if not sentence_results:
             return None
-        
-        # Step 2: Whisper 타이밍 분석
-        print(f"   ⏱️  Whisper 타이밍 분석 중...")
 
-        try:
-            with open(audio_file, "rb") as f:
-                transcript = self.openai_client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=f,
-                    response_format="verbose_json",
-                    timestamp_granularities=["word"]
-                )
-            
-            words = []
-            if hasattr(transcript, 'words') and transcript.words:
-                for w in transcript.words:
-                    words.append({
-                        "word": w.word,
-                        "start": w.start,
-                        "end": w.end,
-                        "duration": round(w.end - w.start, 3)
-                    })
-            
-            timing_data = {
-                "scene_id": scene_id,
-                "audio_file": str(audio_file),
-                "actual_duration": transcript.duration,
-                "full_text": transcript.text,
-                "input_text": text,
-                "word_count": len(words),
-                "words": words,
-                "voice": voice,
-                "is_chirp_hd": self._is_chirp_hd_voice(voice),
-                "created_at": datetime.now().isoformat()
-            }
-            
-            with open(timing_file, 'w', encoding='utf-8') as f:
-                json.dump(timing_data, f, ensure_ascii=False, indent=2)
-            
-            print(f"   ✅ 실제 음성 길이: {transcript.duration:.2f}초")
-            print(f"   ✅ 단어 수: {len(words)}개")
-            
-            self.state.add_file("audio", str(audio_file))
-            return timing_data
-            
-        except Exception as e:
-            print(f"   ⚠️  Whisper 분석 실패: {e}")
-            estimated_duration = len(text) / 5
-            
-            timing_data = {
-                "scene_id": scene_id,
-                "audio_file": str(audio_file),
-                "actual_duration": estimated_duration,
-                "full_text": text,
-                "input_text": text,
-                "word_count": len(text.split()),
-                "words": [],
-                "voice": voice,
-                "is_chirp_hd": self._is_chirp_hd_voice(voice),
-                "estimated": True,
-                "created_at": datetime.now().isoformat()
-            }
-            
-            with open(timing_file, 'w', encoding='utf-8') as f:
-                json.dump(timing_data, f, ensure_ascii=False, indent=2)
-            
-            self.state.add_file("audio", str(audio_file))
-            return timing_data
+        # 타이밍 JSON 저장
+        timing_file = audio_dir / f"{scene_id}_timing.json"
+        timing_data = {
+            "scene_id": scene_id,
+            "voice": voice_name,
+            "total_duration": total_duration,
+            "sentence_count": len(sentence_results),
+            "sentences": sentence_results,
+            "audio_files": audio_files,
+            "created_at": datetime.now().isoformat()
+        }
+
+        with open(timing_file, 'w', encoding='utf-8') as f:
+            json.dump(timing_data, f, ensure_ascii=False, indent=2)
+
+        print(f"   ✅ 완료: {len(sentence_results)}개 문장, 총 {total_duration:.2f}초")
+
+        # state에 오디오 파일 추가
+        for af in audio_files:
+            self.state.add_file("audio", af)
+
+        return timing_data
     
-    def _generate_chirp_hd(self, audio_file: Path, text: str, voice: str) -> None:
-        """Chirp 3 HD 스트리밍 TTS 생성"""
-        
-        streaming_config = texttospeech.StreamingSynthesizeConfig(
-            voice=texttospeech.VoiceSelectionParams(
-                name=voice,
-                language_code=TTS_CONFIG["language_code"],
-            )
-        )
-        
-        def request_generator():
-            yield texttospeech.StreamingSynthesizeRequest(streaming_config=streaming_config)
-            yield texttospeech.StreamingSynthesizeRequest(
-                input=texttospeech.StreamingSynthesisInput(text=text)
-            )
-        
-        responses = self.tts_client.streaming_synthesize(request_generator())
-        
-        with open(audio_file, "wb") as out:
-            for response in responses:
-                out.write(response.audio_content)
-    
-    def _generate_standard(self, audio_file: Path, text: str, voice: str) -> None:
-        """기존 Neural2/Wavenet TTS 생성 (SSML 지원)"""
-        
-        synthesis_input = texttospeech.SynthesisInput(
-            ssml=f"<speak>{text}</speak>"
-        )
+    def generate_all_from_scenes(self, start_from: int = 1) -> List[Dict[str, Any]]:
+        """scenes.json의 모든 씬에 대해 TTS 생성 (문장별)
 
-        voice_params = texttospeech.VoiceSelectionParams(
-            language_code=TTS_CONFIG["language_code"],
-            name=voice
-        )
-
-        audio_config = texttospeech.AudioConfig(
-            audio_encoding=texttospeech.AudioEncoding.MP3
-        )
-
-        response = self.tts_client.synthesize_speech(
-            input=synthesis_input,
-            voice=voice_params,
-            audio_config=audio_config
-        )
-
-        with open(audio_file, "wb") as out:
-            out.write(response.audio_content)
-    
-    def generate_all_from_scenes(self) -> List[Dict[str, Any]]:
-        """scenes.json의 모든 씬에 대해 TTS 생성"""
-        # 이 메서드는 기존과 동일 - 변경 없음
+        Args:
+            start_from: 시작할 씬 번호 (1부터 시작, 예: 14면 s14부터 시작)
+        """
         project_id = self.state.get("project_id", "unknown")
         project_dir = OUTPUT_DIR / project_id
         scenes_file = project_dir / "2_scenes" / "scenes.json"
-        
+        audio_dir = project_dir / "0_audio"
+
         if not scenes_file.exists():
             print(f"❌ 씬 파일이 없습니다: {scenes_file}")
             return []
-        
+
         with open(scenes_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
-        
-        scenes = data.get("scenes", [])
+
+        # scenes.json이 배열이면 직접 사용, 객체면 scenes 키 사용
+        if isinstance(data, list):
+            scenes = data
+        else:
+            scenes = data.get("scenes", [])
         if not scenes:
             print("❌ 씬이 없습니다.")
             return []
-        
-        print(f"\n🎬 총 {len(scenes)}개 씬 TTS 생성 시작")
+
+        print(f"\n🎬 총 {len(scenes)}개 씬 TTS 생성 시작 (OpenAI TTS)")
+        if start_from > 1:
+            print(f"   s{start_from}부터 시작 (s1-s{start_from-1} 건너뜀)")
         print("="*60)
-        
+
         results = []
-        audio_files = []
-        
+        all_audio_files = []
+        total_sentences = 0
+        total_duration = 0.0
+        skipped = 0
+
         for i, scene in enumerate(scenes, 1):
             scene_id = scene.get("scene_id", f"s{i}")
+
+            # start_from 이전의 씬은 건너뛰기
+            scene_num = int(scene_id[1:]) if scene_id.startswith('s') and scene_id[1:].isdigit() else i
+            if scene_num < start_from:
+                # 기존 타이밍 파일이 있으면 결과에 추가
+                timing_file = audio_dir / f"{scene_id}_timing.json"
+                if timing_file.exists():
+                    with open(timing_file, 'r', encoding='utf-8') as f:
+                        existing = json.load(f)
+                        results.append(existing)
+                        all_audio_files.extend(existing.get("audio_files", []))
+                        total_sentences += existing.get("sentence_count", 0)
+                        total_duration += existing.get("total_duration", 0.0)
+                skipped += 1
+                continue
+
             text = scene.get("narration_tts") or scene.get("narration_display", "")
-            
+
             if not text:
                 print(f"\n⚠️  [{scene_id}] 나레이션 텍스트가 없습니다. 건너뜁니다.")
                 continue
-            
+
             print(f"\n[{i}/{len(scenes)}] {scene_id}")
-            result = self.generate(scene_id, text)
-            
+
+            try:
+                result = self.generate(scene_id, text)
+            except QuotaExceededException:
+                # 한도 초과 시 현재까지 진행 상황 저장 후 중단
+                print("\n" + "="*60)
+                print(f"⚠️  TTS 생성 중단: {len(results)}/{len(scenes)}개 씬 완료")
+                print(f"   총 문장: {total_sentences}개")
+                print(f"   총 시간: {total_duration:.1f}초 ({total_duration/60:.1f}분)")
+                print(f"\n   📌 다음 명령으로 이어서 진행하세요:")
+                print(f"   python math_video_pipeline.py tts-all --start-from {scene_num}")
+                print("="*60)
+
+                # 부분 완료 상태 저장
+                if results:
+                    self.state.update_tts_partial(project_id, all_audio_files, scene_num)
+
+                return results  # 현재까지 결과 반환
+
             if result:
                 results.append(result)
-                audio_files.append(result["audio_file"])
-        
+                # 문장별 오디오 파일 수집
+                all_audio_files.extend(result.get("audio_files", []))
+                total_sentences += result.get("sentence_count", 0)
+                total_duration += result.get("total_duration", 0.0)
+
         print("\n" + "="*60)
-        print(f"✅ TTS 생성 완료: {len(results)}/{len(scenes)}개")
-        
+        print(f"✅ TTS 생성 완료: {len(results)}/{len(scenes)}개 씬")
+        print(f"   총 문장: {total_sentences}개")
+        print(f"   총 시간: {total_duration:.1f}초 ({total_duration/60:.1f}분)")
+
         if results:
-            self.state.update_tts_completed(project_id, audio_files)
-        
+            self.state.update_tts_completed(project_id, all_audio_files)
+
         return results
+
+    def export_texts(self) -> Optional[Path]:
+        """외부 녹음용 텍스트 JSON 내보내기
+
+        scenes.json에서 모든 씬의 narration_tts를 문장별로 분리하여
+        0_audio/tts_texts.json으로 내보냅니다.
+
+        Returns:
+            생성된 JSON 파일 경로 (실패 시 None)
+        """
+        project_id = self.state.get("project_id")
+        if not project_id:
+            print("❌ 활성 프로젝트가 없습니다.")
+            return None
+
+        project_dir = OUTPUT_DIR / project_id
+        scenes_file = project_dir / "2_scenes" / "scenes.json"
+
+        if not scenes_file.exists():
+            print(f"❌ scenes.json이 없습니다: {scenes_file}")
+            return None
+
+        with open(scenes_file, 'r', encoding='utf-8') as f:
+            scenes_data = json.load(f)
+
+        # scenes.json은 배열 형태일 수도, {"scenes": [...]} 형태일 수도 있음
+        if isinstance(scenes_data, list):
+            scenes = scenes_data
+        else:
+            scenes = scenes_data.get("scenes", [])
+
+        if not scenes:
+            print("❌ scenes.json에 씬 데이터가 없습니다.")
+            return None
+
+        # 오디오 폴더 생성
+        audio_dir = project_dir / "0_audio"
+        audio_dir.mkdir(parents=True, exist_ok=True)
+
+        # 문장별 텍스트 수집
+        tts_texts = {}
+        total_sentences = 0
+
+        print(f"🎙️ 외부 녹음용 텍스트 내보내기")
+        print("=" * 60)
+
+        for scene in scenes:
+            scene_id = scene.get("scene_id", "")
+            narration_tts = scene.get("narration_tts", "")
+
+            if not narration_tts:
+                continue
+
+            # 문장 분할
+            sentences = self._split_into_sentences(narration_tts)
+
+            for idx, sentence in enumerate(sentences, 1):
+                key = f"{scene_id}_{idx}"
+                tts_texts[key] = sentence
+                total_sentences += 1
+
+            print(f"   {scene_id}: {len(sentences)}개 문장")
+
+        # JSON 저장
+        output_file = audio_dir / "tts_texts.json"
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(tts_texts, f, ensure_ascii=False, indent=2)
+
+        print("=" * 60)
+        print(f"✅ 텍스트 내보내기 완료!")
+        print(f"   📁 파일: {output_file}")
+        print(f"   📊 총 {len(scenes)}개 씬, {total_sentences}개 문장")
+        print()
+        print("📋 녹음 안내:")
+        print("   1. 각 문장별로 개별 파일 녹음")
+        print("   2. 파일명: s1_1.mp3, s1_2.mp3, s2_1.wav ...")
+        print(f"   3. 저장 위치: {audio_dir}")
+        print()
+        print('녹음 완료 후 "python math_video_pipeline.py audio-check" 실행')
+
+        return output_file
+
+    def check_audio_files(self) -> Dict[str, List[str]]:
+        """외부 녹음 파일 누락 확인
+
+        tts_texts.json과 실제 오디오 파일을 비교하여
+        누락된 파일 목록을 반환합니다.
+
+        Returns:
+            {"available": [...], "missing": [...]}
+        """
+        project_id = self.state.get("project_id")
+        if not project_id:
+            print("❌ 활성 프로젝트가 없습니다.")
+            return {"available": [], "missing": []}
+
+        project_dir = OUTPUT_DIR / project_id
+        audio_dir = project_dir / "0_audio"
+        texts_file = audio_dir / "tts_texts.json"
+
+        if not texts_file.exists():
+            print(f"❌ tts_texts.json이 없습니다.")
+            print(f"   먼저 'python math_video_pipeline.py tts-export' 실행하세요.")
+            return {"available": [], "missing": []}
+
+        with open(texts_file, 'r', encoding='utf-8') as f:
+            tts_texts = json.load(f)
+
+        # 파일 확인
+        available = []
+        missing = []
+
+        print(f"🔍 외부 녹음 파일 확인")
+        print("=" * 60)
+
+        for key in tts_texts.keys():
+            # mp3 또는 wav 확인
+            mp3_file = audio_dir / f"{key}.mp3"
+            wav_file = audio_dir / f"{key}.wav"
+
+            if mp3_file.exists():
+                available.append(f"{key}.mp3")
+            elif wav_file.exists():
+                available.append(f"{key}.wav")
+            else:
+                missing.append(key)
+
+        total = len(tts_texts)
+
+        if missing:
+            print(f"⚠️  누락된 파일: {len(missing)}/{total}개")
+            print()
+            for key in missing[:20]:  # 최대 20개만 표시
+                print(f"   ❌ {key}.mp3 (또는 .wav)")
+                print(f"      텍스트: {tts_texts[key][:50]}...")
+            if len(missing) > 20:
+                print(f"   ... 외 {len(missing) - 20}개")
+            print()
+            print(f"📁 저장 위치: {audio_dir}")
+        else:
+            print(f"✅ 모든 파일 준비 완료! ({len(available)}/{total}개)")
+            print()
+            print('다음 단계: "python math_video_pipeline.py audio-process"')
+
+        print("=" * 60)
+
+        return {"available": available, "missing": missing}
+
+    def process_audio_files(self) -> bool:
+        """외부 녹음 파일 처리 (Whisper 분석 + timing.json 생성)
+
+        각 문장별 오디오 파일의 duration을 측정하고
+        씬별 timing.json을 생성합니다.
+
+        Returns:
+            성공 여부
+        """
+        project_id = self.state.get("project_id")
+        if not project_id:
+            print("❌ 활성 프로젝트가 없습니다.")
+            return False
+
+        project_dir = OUTPUT_DIR / project_id
+        audio_dir = project_dir / "0_audio"
+        texts_file = audio_dir / "tts_texts.json"
+
+        if not texts_file.exists():
+            print(f"❌ tts_texts.json이 없습니다.")
+            print(f"   먼저 'python math_video_pipeline.py tts-export' 실행하세요.")
+            return False
+
+        # 누락 파일 확인
+        check_result = self.check_audio_files()
+        if check_result["missing"]:
+            print(f"\n❌ 누락된 파일이 있습니다. 먼저 녹음을 완료하세요.")
+            return False
+
+        with open(texts_file, 'r', encoding='utf-8') as f:
+            tts_texts = json.load(f)
+
+        print()
+        print(f"🎧 오디오 파일 처리 시작")
+        print("=" * 60)
+
+        # 씬별로 그룹화
+        scene_sentences = {}
+        for key, text in tts_texts.items():
+            # key: s1_1, s1_2, s2_1 ...
+            parts = key.rsplit('_', 1)
+            scene_id = parts[0]
+            sentence_idx = int(parts[1])
+
+            if scene_id not in scene_sentences:
+                scene_sentences[scene_id] = []
+            scene_sentences[scene_id].append({
+                "key": key,
+                "index": sentence_idx,
+                "text": text
+            })
+
+        # 각 씬별로 처리
+        all_audio_files = []
+
+        for scene_id in sorted(scene_sentences.keys(), key=lambda x: int(x[1:]) if x[1:].isdigit() else 0):
+            sentences = sorted(scene_sentences[scene_id], key=lambda x: x["index"])
+
+            print(f"\n[{scene_id}] {len(sentences)}개 문장 처리 중...")
+
+            sentence_results = []
+            audio_files = []
+            current_time = 0.0
+
+            for sent in sentences:
+                key = sent["key"]
+
+                # 파일 찾기 (mp3 또는 wav)
+                mp3_file = audio_dir / f"{key}.mp3"
+                wav_file = audio_dir / f"{key}.wav"
+
+                if mp3_file.exists():
+                    audio_file = mp3_file
+                    file_ext = "mp3"
+                else:
+                    audio_file = wav_file
+                    file_ext = "wav"
+
+                # duration 측정
+                duration = self._get_audio_duration(audio_file)
+
+                sentence_results.append({
+                    "index": sent["index"],
+                    "text": sent["text"],
+                    "file": f"{key}.{file_ext}",
+                    "start": round(current_time, 3),
+                    "end": round(current_time + duration, 3),
+                    "duration": round(duration, 3)
+                })
+
+                audio_files.append(f"{key}.{file_ext}")
+                all_audio_files.append(f"{key}.{file_ext}")
+                current_time += duration
+
+                print(f"   {key}: {duration:.2f}초")
+
+            # timing.json 저장
+            timing_file = audio_dir / f"{scene_id}_timing.json"
+            timing_data = {
+                "scene_id": scene_id,
+                "voice": "external_recording",
+                "total_duration": round(current_time, 3),
+                "sentence_count": len(sentence_results),
+                "sentences": sentence_results,
+                "audio_files": audio_files,
+                "created_at": datetime.now().isoformat()
+            }
+
+            with open(timing_file, 'w', encoding='utf-8') as f:
+                json.dump(timing_data, f, ensure_ascii=False, indent=2)
+
+            print(f"   ✅ {timing_file.name} 저장 (총 {current_time:.2f}초)")
+
+        # state 업데이트
+        self.state.update_tts_completed(project_id, all_audio_files)
+
+        print()
+        print("=" * 60)
+        print(f"✅ 오디오 처리 완료!")
+        print(f"   📊 {len(scene_sentences)}개 씬, {len(all_audio_files)}개 파일")
+        print(f"   📁 timing.json 생성 완료")
+        print()
+        print("다음 단계: Manim 코드 생성")
+
+        return True
+
+    def _get_audio_duration(self, audio_file: Path) -> float:
+        """오디오 파일의 재생 시간 측정 (mp3/wav 지원)"""
+        import subprocess
+
+        try:
+            # ffprobe 사용
+            result = subprocess.run(
+                [
+                    "ffprobe", "-v", "error",
+                    "-show_entries", "format=duration",
+                    "-of", "default=noprint_wrappers=1:nokey=1",
+                    str(audio_file)
+                ],
+                capture_output=True,
+                text=True
+            )
+            return float(result.stdout.strip())
+        except:
+            pass
+
+        # wav 파일인 경우 wave 모듈 사용
+        if audio_file.suffix.lower() == ".wav":
+            return self._get_wav_duration(audio_file)
+
+        # mp3 파일인 경우 mutagen 시도
+        try:
+            from mutagen.mp3 import MP3
+            audio = MP3(str(audio_file))
+            return audio.info.length
+        except:
+            pass
+
+        print(f"      ⚠️  duration 측정 실패: {audio_file.name}")
+        return 0.0
+
 # ============================================================================
 # 파일 관리 클래스
 # ============================================================================
@@ -1674,8 +2149,8 @@ def convert_to_tts_text(text: str) -> str:
         (r'\*', ' 곱하기 '),
         (r'÷', ' 나누기 '),
         (r'/', ' 나누기 '),
-        (r'\+', ' 더하기 '),
-        (r'(?<!\w)-(?!\w)', ' 빼기 '),  # 단독 마이너스만
+        (r'\+', ' 플러스 '),
+        (r'(?<!\w)-(?!\w)', ' 마이너스 '),  # 단독 마이너스만
         (r'=', '는 '),
         
         # 수학 기호
@@ -1742,8 +2217,8 @@ def print_help():
     """도움말 출력"""
     help_text = """
 ╔══════════════════════════════════════════════════════════════════╗
-║        수학 교육 영상 제작 파이프라인 v6.2                        ║
-║        Claude Code 통합 버전 (Google Cloud TTS)                  ║
+║        수학 교육 영상 제작 파이프라인 v6.3                        ║
+║        Claude Code 통합 버전 (OpenAI TTS)                        ║
 ╚══════════════════════════════════════════════════════════════════╝
 
 📌 사용법:
@@ -1757,7 +2232,7 @@ def print_help():
                 --aspect 16:9      종횡비 (16:9 / 9:16)
                 --style cyberpunk  스타일 (minimal/cyberpunk/paper/space/geometric/stickman)
                 --difficulty intermediate  난이도 (beginner/intermediate/advanced)
-                --voice ko-KR-Neural2-C    TTS 음성
+                --voice alloy              TTS 음성 (OpenAI)
 
   status        현재 프로젝트 상태 확인
 
@@ -1793,14 +2268,15 @@ def print_help():
 
   help          이 도움말 표시
 
-🎤 TTS 음성 옵션 (Google Cloud TTS):
-  ko-KR-Neural2-A    여성 (차분함)
-  ko-KR-Neural2-B    여성 (밝음)
-  ko-KR-Neural2-C    남성 (또렷함) [기본값]
-  ko-KR-Wavenet-A    여성 (자연스러움)
-  ko-KR-Wavenet-C    남성 (자연스러움)
-  ko-KR-Standard-A   여성 (비용 절약)
-  ko-KR-Standard-C   남성 (비용 절약)
+🎤 TTS 음성 옵션 (OpenAI TTS):
+  alloy      중성적, 균형잡힌
+  echo       남성적, 차분함
+  fable      영국식 억양
+  onyx       남성적, 깊은 목소리 [기본값]
+  nova       여성적, 밝고 친근
+  shimmer    여성적, 부드러움
+
+  🎧 음성 샘플: https://platform.openai.com/docs/guides/text-to-speech
 
 📖 예시:
 
@@ -1887,23 +2363,9 @@ def main():
     init_parser.add_argument("--aspect", default="16:9",
                             choices=["16:9", "9:16"],
                             help="종횡비")
-    init_parser.add_argument("--voice", default="ko-KR-Chirp3-HD-Charon",
-                            choices=[
-                                # Chirp 3 HD (권장)
-                                "ko-KR-Chirp3-HD-Charon",
-                                "ko-KR-Chirp3-HD-Aoede",
-                                "ko-KR-Chirp3-HD-Kore",
-                                "ko-KR-Chirp3-HD-Puck",
-                                # 기존 Neural2/Wavenet/Standard
-                                "ko-KR-Neural2-A", 
-                                "ko-KR-Neural2-B", 
-                                "ko-KR-Neural2-C",
-                                "ko-KR-Wavenet-A", 
-                                "ko-KR-Wavenet-C",
-                                "ko-KR-Standard-A",
-                                "ko-KR-Standard-C"
-                            ],
-                            help="TTS 음성 (Chirp 3 HD 권장)")
+    init_parser.add_argument("--voice", default="onyx",
+                            choices=["alloy", "echo", "fable", "onyx", "nova", "shimmer"],
+                            help="TTS 음성 (OpenAI)")
     
     # status 명령어
     subparsers.add_parser("status", help="현재 상태 확인")
@@ -1915,8 +2377,19 @@ def main():
     tts_parser.add_argument("--voice", "-v", help="TTS 음성 (기본값: 프로젝트 설정)")
     
     # tts-all 명령어
-    subparsers.add_parser("tts-all", help="모든 씬 TTS 생성")
-    
+    tts_all_parser = subparsers.add_parser("tts-all", help="모든 씬 TTS 생성")
+    tts_all_parser.add_argument("--start-from", "-f", type=int, default=1,
+                               help="시작할 씬 번호 (예: 14면 s14부터 시작)")
+
+    # tts-export 명령어 (외부 녹음용 텍스트 내보내기)
+    subparsers.add_parser("tts-export", help="외부 녹음용 텍스트 JSON 내보내기")
+
+    # audio-check 명령어 (외부 녹음 파일 확인)
+    subparsers.add_parser("audio-check", help="외부 녹음 파일 누락 확인")
+
+    # audio-process 명령어 (외부 녹음 파일 처리)
+    subparsers.add_parser("audio-process", help="외부 녹음 파일 Whisper 분석 + timing.json 생성")
+
     # render 명령어
     render_parser = subparsers.add_parser("render", help="단일 씬 렌더링")
     render_parser.add_argument("--scene", "-s", required=True, help="씬 ID")
@@ -1990,8 +2463,21 @@ def main():
     
     elif args.command == "tts-all":
         tts = TTSGenerator(state)
-        tts.generate_all_from_scenes()
-    
+        start_from = getattr(args, 'start_from', 1)
+        tts.generate_all_from_scenes(start_from=start_from)
+
+    elif args.command == "tts-export":
+        tts = TTSGenerator(state)
+        tts.export_texts()
+
+    elif args.command == "audio-check":
+        tts = TTSGenerator(state)
+        tts.check_audio_files()
+
+    elif args.command == "audio-process":
+        tts = TTSGenerator(state)
+        tts.process_audio_files()
+
     elif args.command == "render":
         renderer = RenderManager(state)
         renderer.render_scene(
@@ -2051,1783 +2537,3 @@ if __name__ == "__main__":
     main()
 
 
-
-# #!/usr/bin/env python3
-# """
-# 수학 교육 영상 제작 자동화 파이프라인 v5.0
-# - Skills 폴더 실제 참조
-# - OpenAI TTS + Whisper 타이밍 측정
-# - 완전 대화형
-# - 음성 길이 기준 Manim 코드 생성
-# """
-
-# import json
-# import os
-# import re
-# import sys
-# from datetime import datetime
-# from pathlib import Path
-# from typing import List, Dict, Optional
-# import time
-
-# # OpenAI 설치 확인
-# try:
-#     import openai
-#     from openai import OpenAI
-# except ImportError:
-#     print("❌ OpenAI 라이브러리가 설치되지 않았습니다.")
-#     print("설치: pip install openai")
-#     sys.exit(1)
-
-# # 환경변수에서 API 키 로드
-# OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-# if not OPENAI_API_KEY:
-#     print("⚠️  OPENAI_API_KEY 환경변수가 설정되지 않았습니다.")
-#     print(".env 파일에 OPENAI_API_KEY=sk-... 를 추가하거나")
-#     print("export OPENAI_API_KEY=sk-... 로 설정하세요.")
-#     OPENAI_API_KEY = input("또는 여기에 API 키를 입력하세요: ").strip()
-
-# # OpenAI 클라이언트 초기화
-# client = OpenAI(api_key=OPENAI_API_KEY)
-
-
-# # ========== Skill 로더 ==========
-# class SkillLoader:
-#     """Skills 폴더에서 가이드라인 로드"""
-    
-#     SKILLS_DIR = Path("skills")
-    
-#     @classmethod
-#     def load(cls, skill_name: str) -> str:
-#         """Skill 가이드라인 로드"""
-#         skill_file = cls.SKILLS_DIR / f"{skill_name}.md"
-        
-#         if not skill_file.exists():
-#             print(f"⚠️  스킬 파일을 찾을 수 없습니다: {skill_file}")
-#             return ""
-        
-#         try:
-#             with open(skill_file, 'r', encoding='utf-8') as f:
-#                 content = f.read()
-#             print(f"✅ Skill 로드: {skill_name}.md ({len(content)}자)")
-#             return content
-#         except Exception as e:
-#             print(f"❌ Skill 로드 실패 ({skill_name}): {e}")
-#             return ""
-    
-#     @classmethod
-#     def extract_section(cls, content: str, section_title: str) -> str:
-#         """특정 섹션 추출"""
-#         # ## 섹션명 찾기
-#         pattern = rf"##\s+{re.escape(section_title)}.*?\n(.*?)(?=\n##|\Z)"
-#         match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
-        
-#         if match:
-#             return match.group(1).strip()
-#         return ""
-    
-#     @classmethod
-#     def extract_examples(cls, content: str) -> List[str]:
-#         """예시 코드 블록 추출"""
-#         # ```python ... ``` 블록 찾기
-#         pattern = r"```(?:python)?\n(.*?)\n```"
-#         matches = re.findall(pattern, content, re.DOTALL)
-#         return matches
-
-
-# # ========== 설정 클래스 ==========
-# class Config:
-#     """프로젝트 설정"""
-    
-#     def __init__(
-#         self,
-#         title: str,
-#         background_style: str,
-#         voice_style: str,
-#         font_style: str,
-#         subtitle_style: str,
-#         difficulty: str,
-#         aspect_ratio: str,
-#         duration: int
-#     ):
-#         self.title = title
-#         self.background_style = background_style
-#         self.voice_style = voice_style
-#         self.font_style = font_style
-#         self.subtitle_style = subtitle_style
-#         self.difficulty = difficulty
-#         self.aspect_ratio = aspect_ratio
-#         self.duration = duration
-        
-#         self.project_id = self._generate_project_id()
-#         self.timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-        
-#         # 컬러 팔레트
-#         self.color_palette = {
-#             "variable": "YELLOW",
-#             "constant": "ORANGE",
-#             "result": "GREEN",
-#             "auxiliary": "GRAY_B",
-#             "emphasis": "RED"
-#         }
-        
-#         # 스타일별 설정
-#         self.style_config = {
-#             "minimal": {
-#                 "glow": False,
-#                 "flash_frequency": "low",
-#                 "primary_color": "WHITE",
-#                 "background_color": "BLACK"
-#             },
-#             "cyberpunk": {
-#                 "glow": True,
-#                 "flash_frequency": "high",
-#                 "primary_color": "CYAN",
-#                 "background_color": "#0a0a0a"
-#             },
-#             "paper": {
-#                 "glow": False,
-#                 "flash_frequency": "medium",
-#                 "primary_color": "BLACK",
-#                 "background_color": "#f5f5dc"
-#             },
-#             "space": {
-#                 "glow": True,
-#                 "flash_frequency": "medium",
-#                 "primary_color": "BLUE",
-#                 "background_color": "#000011"
-#             },
-#             "geometric": {
-#                 "glow": False,
-#                 "flash_frequency": "medium",
-#                 "primary_color": "GOLD",
-#                 "background_color": "#1a1a1a"
-#             }
-#         }
-        
-#         # OpenAI TTS 설정
-#         self.tts_config = {
-#             "model": "tts-1-hd",
-#             "voice": self._map_voice_style(voice_style),
-#             "speed": 1.0
-#         }
-    
-#     def _generate_project_id(self) -> str:
-#         """프로젝트 ID 생성"""
-#         return f"P{datetime.now().strftime('%Y%m%d%H%M%S')}"
-    
-#     def _map_voice_style(self, style: str) -> str:
-#         """성우 스타일 → OpenAI 음성 매핑"""
-#         mapping = {
-#             "calm": "alloy",      # 차분한
-#             "energetic": "echo",  # 열정적
-#             "friendly": "nova"    # 친근한
-#         }
-#         return mapping.get(style, "alloy")
-    
-#     def get_style_config(self) -> dict:
-#         """현재 스타일 설정 반환"""
-#         return self.style_config.get(self.background_style, self.style_config["cyberpunk"])
-
-
-# # ========== 대화형 설정 수집 ==========
-# class InteractiveSetup:
-#     """사용자로부터 모든 설정 수집"""
-    
-#     def __init__(self):
-#         self.title = ""
-#         self.background_style = ""
-#         self.voice_style = ""
-#         self.font_style = ""
-#         self.subtitle_style = ""
-#         self.difficulty = ""
-#         self.aspect_ratio = ""
-#         self.duration = 0
-    
-#     def run(self) -> Config:
-#         """전체 설정 프로세스 실행"""
-#         print("="*70)
-#         print("🎬 수학 교육 영상 제작 파이프라인 v5.0")
-#         print("   (Skills 통합 + OpenAI TTS + Whisper)")
-#         print("="*70)
-#         print()
-        
-#         # 1. 제목
-#         self._input_title()
-        
-#         # 2. 스타일 설정
-#         self._input_styles()
-        
-#         # 3. 분량
-#         self._input_duration()
-        
-#         # 4. 확인
-#         if not self._confirm_settings():
-#             return self._modify_settings()
-        
-#         # Config 객체 생성
-#         config = Config(
-#             title=self.title,
-#             background_style=self.background_style,
-#             voice_style=self.voice_style,
-#             font_style=self.font_style,
-#             subtitle_style=self.subtitle_style,
-#             difficulty=self.difficulty,
-#             aspect_ratio=self.aspect_ratio,
-#             duration=self.duration
-#         )
-        
-#         return config
-    
-#     def _input_title(self):
-#         """제목 입력"""
-#         print("📝 1단계: 제목")
-#         print("-"*70)
-#         self.title = input("영상 제목을 입력하세요: ").strip()
-        
-#         while not self.title:
-#             print("❌ 제목은 필수입니다.")
-#             self.title = input("영상 제목을 입력하세요: ").strip()
-        
-#         print(f"✅ 제목: {self.title}\n")
-    
-#     def _input_styles(self):
-#         """스타일 설정"""
-#         print("🎨 2단계: 스타일 설정")
-#         print("-"*70)
-        
-#         # 배경 이미지 스타일
-#         print("\n📐 배경 이미지 스타일:")
-#         bg_styles = {
-#             "1": ("minimal", "미니멀 (깔끔한 그라데이션)"),
-#             "2": ("cyberpunk", "사이버펑크 (네온 + 글로우)"),
-#             "3": ("paper", "종이 질감 (따뜻한 베이지)"),
-#             "4": ("space", "우주 (별과 은하)"),
-#             "5": ("geometric", "기하학 (수학적 패턴)")
-#         }
-#         for key, (_, desc) in bg_styles.items():
-#             print(f"  {key}. {desc}")
-        
-#         bg_choice = self._get_choice("배경 스타일을 선택하세요 (1-5)", list(bg_styles.keys()), "2")
-#         self.background_style = bg_styles[bg_choice][0]
-#         print(f"✅ 배경: {bg_styles[bg_choice][1]}")
-        
-#         # 성우 스타일
-#         print("\n🎤 성우 스타일:")
-#         voice_styles = {
-#             "1": ("calm", "차분한 선생님 (alloy)"),
-#             "2": ("energetic", "열정적인 강사 (echo)"),
-#             "3": ("friendly", "친근한 친구 (nova)")
-#         }
-#         for key, (_, desc) in voice_styles.items():
-#             print(f"  {key}. {desc}")
-        
-#         voice_choice = self._get_choice("성우 스타일을 선택하세요 (1-3)", list(voice_styles.keys()), "1")
-#         self.voice_style = voice_styles[voice_choice][0]
-#         print(f"✅ 성우: {voice_styles[voice_choice][1]}")
-        
-#         # 폰트 스타일
-#         print("\n✍️  폰트 스타일:")
-#         font_styles = {
-#             "1": ("handwriting", "손글씨 느낌"),
-#             "2": ("sans-serif", "깔끔한 산세리프"),
-#             "3": ("serif", "클래식 세리프")
-#         }
-#         for key, (_, desc) in font_styles.items():
-#             print(f"  {key}. {desc}")
-        
-#         font_choice = self._get_choice("폰트 스타일을 선택하세요 (1-3)", list(font_styles.keys()), "1")
-#         self.font_style = font_styles[font_choice][0]
-#         print(f"✅ 폰트: {font_styles[font_choice][1]}")
-        
-#         # 자막 스타일
-#         print("\n📺 자막 스타일:")
-#         subtitle_styles = {
-#             "1": ("fixed", "하단 고정형 (Level 1)"),
-#             "2": ("karaoke", "카라오케형 (Level 3)"),
-#             "3": ("formula", "수식 연동형 (Level 4)")
-#         }
-#         for key, (_, desc) in subtitle_styles.items():
-#             print(f"  {key}. {desc}")
-        
-#         sub_choice = self._get_choice("자막 스타일을 선택하세요 (1-3)", list(subtitle_styles.keys()), "2")
-#         self.subtitle_style = subtitle_styles[sub_choice][0]
-#         print(f"✅ 자막: {subtitle_styles[sub_choice][1]}")
-        
-#         # 난이도
-#         print("\n📊 난이도:")
-#         difficulties = {
-#             "1": ("beginner", "입문 (Beginner)"),
-#             "2": ("intermediate", "중급 (Intermediate)"),
-#             "3": ("advanced", "고급 (Advanced)")
-#         }
-#         for key, (_, desc) in difficulties.items():
-#             print(f"  {key}. {desc}")
-        
-#         diff_choice = self._get_choice("난이도를 선택하세요 (1-3)", list(difficulties.keys()), "2")
-#         self.difficulty = difficulties[diff_choice][0]
-#         print(f"✅ 난이도: {difficulties[diff_choice][1]}")
-        
-#         # 종횡비
-#         print("\n📐 종횡비:")
-#         aspects = {
-#             "1": ("16:9", "16:9 (YouTube)"),
-#             "2": ("9:16", "9:16 (Shorts)")
-#         }
-#         for key, (_, desc) in aspects.items():
-#             print(f"  {key}. {desc}")
-        
-#         aspect_choice = self._get_choice("종횡비를 선택하세요 (1-2)", list(aspects.keys()), "1")
-#         self.aspect_ratio = aspects[aspect_choice][0]
-#         print(f"✅ 종횡비: {aspects[aspect_choice][1]}\n")
-    
-#     def _input_duration(self):
-#         """분량 입력"""
-#         print("⏱️  3단계: 영상 분량")
-#         print("-"*70)
-        
-#         durations = {
-#             "1": (60, "1분 미만 (Shorts)"),
-#             "2": (180, "3분"),
-#             "3": (300, "5분"),
-#             "4": (600, "10분"),
-#             "5": (900, "15분"),
-#             "6": (1200, "20분"),
-#             "7": (1800, "30분"),
-#             "8": (0, "직접 입력")
-#         }
-        
-#         for key, (_, desc) in durations.items():
-#             print(f"  {key}. {desc}")
-        
-#         dur_choice = self._get_choice("분량을 선택하세요 (1-8)", list(durations.keys()), "3")
-        
-#         if dur_choice == "8":
-#             while True:
-#                 try:
-#                     self.duration = int(input("시간을 초 단위로 입력하세요: ").strip())
-#                     if self.duration > 0:
-#                         break
-#                     else:
-#                         print("❌ 양수를 입력하세요.")
-#                 except ValueError:
-#                     print("❌ 숫자를 입력하세요.")
-#         else:
-#             self.duration = durations[dur_choice][0]
-        
-#         print(f"✅ 분량: {self.duration}초 ({self.duration//60}분 {self.duration%60}초)\n")
-    
-#     def _get_choice(self, prompt: str, valid_choices: List[str], default: str) -> str:
-#         """선택지 입력 받기"""
-#         choice = input(f"{prompt} (기본값 {default}): ").strip() or default
-        
-#         while choice not in valid_choices:
-#             print(f"❌ {', '.join(valid_choices)} 중에서 선택하세요.")
-#             choice = input(f"{prompt} (기본값 {default}): ").strip() or default
-        
-#         return choice
-    
-#     def _confirm_settings(self) -> bool:
-#         """설정 확인"""
-#         print("\n" + "="*70)
-#         print("📋 설정 확인")
-#         print("="*70)
-#         print(f"제목: {self.title}")
-#         print(f"배경: {self.background_style}")
-#         print(f"성우: {self.voice_style}")
-#         print(f"폰트: {self.font_style}")
-#         print(f"자막: {self.subtitle_style}")
-#         print(f"난이도: {self.difficulty}")
-#         print(f"종횡비: {self.aspect_ratio}")
-#         print(f"분량: {self.duration}초 ({self.duration//60}분 {self.duration%60}초)")
-#         print("="*70)
-        
-#         confirm = input("\n이대로 진행하시겠습니까? (y/n, 기본값 y): ").strip().lower() or "y"
-#         return confirm == 'y'
-    
-#     def _modify_settings(self) -> Config:
-#         """설정 수정"""
-#         print("\n수정이 필요한 항목:")
-#         print("  1. 제목")
-#         print("  2. 스타일 설정")
-#         print("  3. 분량")
-#         print("  0. 처음부터 다시")
-        
-#         choice = input("선택 (0-3): ").strip()
-        
-#         if choice == "1":
-#             self._input_title()
-#         elif choice == "2":
-#             self._input_styles()
-#         elif choice == "3":
-#             self._input_duration()
-#         else:
-#             return self.run()
-        
-#         return self.run()
-
-
-# # ========== Script Writer ==========
-# class ScriptWriter:
-#     """대본 작성 전문가 - script-writer.md 참조"""
-    
-#     def __init__(self, config: Config):
-#         self.config = config
-#         self.guidelines = SkillLoader.load("script-writer")
-        
-#         print("\n" + "="*70)
-#         print("📖 Script Writer Skill 로드 완료")
-#         print("="*70)
-    
-#     def generate_script(self) -> dict:
-#         """대본 생성 메인 함수"""
-#         print("\n📝 4단계: 대본 작성")
-#         print("-"*70)
-        
-#         print("\n대본 작성 방식:")
-#         print("  1. 직접 작성 (단계별 입력)")
-#         print("  2. 파일 업로드 (.txt, .md)")
-        
-#         method = input("선택 (1-2, 기본값 1): ").strip() or "1"
-        
-#         if method == "1":
-#             script = self._interactive_input()
-#         elif method == "2":
-#             script = self._load_from_file()
-#         else:
-#             print("❌ 잘못된 선택입니다. 직접 작성 모드로 진행합니다.")
-#             script = self._interactive_input()
-        
-#         # TTS용 변환 (script-writer.md 규칙 적용)
-#         tts_script = self._convert_to_tts(script)
-        
-#         return {
-#             "reading_script": script,
-#             "tts_script": tts_script
-#         }
-    
-#     def _interactive_input(self) -> dict:
-#         """사용자 직접 입력 (script-writer.md 구조 따름)"""
-#         print("\n" + "-"*70)
-#         print("✍️  각 섹션별로 대본을 입력해주세요")
-#         print("   (script-writer.md의 5단계 구조)")
-#         print("-"*70)
-        
-#         print("\n🎣 Hook (10초, 흥미 유발):")
-#         print("   예시: 여러분, 미분이 뭔지 아세요? 사실 미분은 자동차 속도계입니다.")
-#         hook = input("> ").strip()
-        
-#         print("\n🔍 분석 (30%, 문제 상황 설명):")
-#         print("   예시: 속도계가 보여주는 숫자는 평균 속도가 아닙니다...")
-#         analysis = input("> ").strip()
-        
-#         print("\n🧮 핵심 수학 (40%, 개념 설명):")
-#         print("   예시: 미분은 순간 변화율입니다. dy/dx는...")
-#         core_math = input("> ").strip()
-        
-#         print("\n🚀 적용 (20%, 실생활 연결):")
-#         print("   예시: 자율주행차는 매 순간 미분을 계산합니다...")
-#         application = input("> ").strip()
-        
-#         print("\n👋 아웃트로 (10초, 마무리):")
-#         print("   예시: 미분은 변화를 측정하는 강력한 도구입니다.")
-#         outro = input("> ").strip()
-        
-#         script = {
-#             "title": self.config.title,
-#             "hook": hook,
-#             "analysis": analysis,
-#             "core_math": core_math,
-#             "application": application,
-#             "outro": outro,
-#             "meta": {
-#                 "duration": self.config.duration,
-#                 "difficulty": self.config.difficulty,
-#                 "created_at": datetime.now().isoformat()
-#             }
-#         }
-        
-#         print("\n✅ 대본 작성 완료!")
-#         return script
-    
-#     def _load_from_file(self) -> dict:
-#         """파일에서 로드"""
-#         filepath = input("파일 경로를 입력하세요: ").strip()
-        
-#         try:
-#             with open(filepath, 'r', encoding='utf-8') as f:
-#                 content = f.read()
-            
-#             print(f"✅ 파일 로드 완료 ({len(content)}자)")
-            
-#             script = self._parse_content(content)
-#             script["title"] = self.config.title
-#             script["meta"] = {
-#                 "duration": self.config.duration,
-#                 "difficulty": self.config.difficulty,
-#                 "created_at": datetime.now().isoformat(),
-#                 "source_file": filepath
-#             }
-            
-#             return script
-        
-#         except FileNotFoundError:
-#             print(f"❌ 파일을 찾을 수 없습니다: {filepath}")
-#             print("직접 입력 모드로 전환합니다.")
-#             return self._interactive_input()
-    
-#     def _parse_content(self, content: str) -> dict:
-#         """파일 내용 파싱"""
-#         sections = {
-#             "hook": "",
-#             "analysis": "",
-#             "core_math": "",
-#             "application": "",
-#             "outro": ""
-#         }
-        
-#         lines = content.split('\n')
-#         current_section = None
-        
-#         for line in lines:
-#             lower_line = line.lower()
-            
-#             if 'hook' in lower_line or '흥미' in lower_line:
-#                 current_section = 'hook'
-#             elif '분석' in lower_line or 'analysis' in lower_line:
-#                 current_section = 'analysis'
-#             elif '핵심' in lower_line or '수학' in lower_line or 'core' in lower_line:
-#                 current_section = 'core_math'
-#             elif '적용' in lower_line or 'application' in lower_line:
-#                 current_section = 'application'
-#             elif '아웃트로' in lower_line or 'outro' in lower_line:
-#                 current_section = 'outro'
-#             elif current_section:
-#                 sections[current_section] += line + " "
-        
-#         if not any(sections.values()):
-#             sections['core_math'] = content
-        
-#         return sections
-    
-#     def _convert_to_tts(self, script: dict) -> dict:
-#         """읽기용 → TTS용 변환 (script-writer.md 규칙)"""
-#         print("\n🎤 TTS용 대본 변환 중 (script-writer.md 규칙 적용)...")
-        
-#         tts = {}
-        
-#         for section in ['hook', 'analysis', 'core_math', 'application', 'outro']:
-#             text = script.get(section, "")
-#             tts[f"{section}_tts"] = self._apply_tts_rules(text)
-        
-#         print("✅ TTS 변환 완료")
-#         return tts
-    
-#     def _apply_tts_rules(self, text: str) -> str:
-#         """숫자/기호 → 한글 발음 변환 (script-writer.md 표 참조)"""
-        
-#         # script-writer.md의 변환 규칙
-#         conversions = {
-#             # 기본 연산자
-#             r'×': ' 곱하기 ',
-#             r'\*': ' 곱하기 ',
-#             r'÷': ' 나누기 ',
-#             r'/': ' 나누기 ',
-#             r'\+': ' 더하기 ',
-#             r'-': ' 빼기 ',
-#             r'=': '는 ',
-            
-#             # 수학 기호
-#             r'√': '루트 ',
-#             r'²': ' 제곱',
-#             r'³': ' 세제곱',
-#             r'∫': '적분 ',
-#             r'Σ': '시그마 ',
-#             r'lim': '극한값 ',
-            
-#             # 함수
-#             r'f\(x\)': '에프엑스',
-#             r'g\(x\)': '지엑스',
-#             r'dy/dx': '디와이 디엑스',
-#             r'd/dx': '디 디엑스',
-            
-#             # 숫자 (0-10)
-#             r'\b0\b': '영',
-#             r'\b1\b': '일',
-#             r'\b2\b': '이',
-#             r'\b3\b': '삼',
-#             r'\b4\b': '사',
-#             r'\b5\b': '오',
-#             r'\b6\b': '육',
-#             r'\b7\b': '칠',
-#             r'\b8\b': '팔',
-#             r'\b9\b': '구',
-#             r'\b10\b': '십',
-#         }
-        
-#         result = text
-#         for pattern, replacement in conversions.items():
-#             result = re.sub(pattern, replacement, result)
-        
-#         # 연속 공백 제거
-#         result = re.sub(r'\s+', ' ', result)
-        
-#         return result.strip()
-
-
-# # ========== OpenAI TTS Generator ==========
-# class OpenAITTSGenerator:
-#     """OpenAI TTS 음성 생성 + Whisper 타이밍 측정"""
-    
-#     def __init__(self, output_dir: Path, config: Config):
-#         self.output_dir = output_dir
-#         self.audio_dir = output_dir / "0_audio"
-#         self.audio_dir.mkdir(exist_ok=True)
-#         self.config = config
-        
-#         # OpenAI TTS Whisper 가이드 로드
-#         self.guidelines = SkillLoader.load("OPENAI_TTS_WHISPER_GUIDE")
-        
-#         print("\n" + "="*70)
-#         print("📖 OpenAI TTS + Whisper Skill 로드 완료")
-#         print("="*70)
-    
-#     def generate_audio_with_timing(self, scene: dict) -> dict:
-#         """TTS 음성 생성 + Whisper 타이밍 측정"""
-#         scene_id = scene['scene_id']
-#         tts_text = scene['narration_tts']
-        
-#         print(f"\n   🎤 [{scene_id}] OpenAI TTS 음성 생성 중...")
-        
-#         # Step 1: TTS 음성 생성
-#         audio_file = self.audio_dir / f"{scene_id}_audio.mp3"
-        
-#         try:
-#             response = client.audio.speech.create(
-#                 model=self.config.tts_config["model"],
-#                 voice=self.config.tts_config["voice"],
-#                 input=tts_text,
-#                 speed=self.config.tts_config["speed"]
-#             )
-            
-#             # MP3 저장
-#             response.stream_to_file(str(audio_file))
-#             print(f"      ✅ 음성 파일 생성: {audio_file.name}")
-            
-#         except Exception as e:
-#             print(f"      ❌ TTS 생성 실패: {e}")
-#             # 더미 데이터 반환
-#             return self._create_dummy_timing(scene)
-        
-#         # Step 2: Whisper로 타이밍 분석
-#         print(f"   ⏱️  [{scene_id}] Whisper 타이밍 분석 중...")
-        
-#         try:
-#             with open(audio_file, "rb") as audio:
-#                 transcript = client.audio.transcriptions.create(
-#                     model="whisper-1",
-#                     file=audio,
-#                     response_format="verbose_json",
-#                     timestamp_granularities=["word"]
-#                 )
-            
-#             # 타이밍 데이터 추출
-#             duration = transcript.duration
-#             words = []
-            
-#             if hasattr(transcript, 'words') and transcript.words:
-#                 for word_data in transcript.words:
-#                     words.append({
-#                         "word": word_data.word,
-#                         "start": word_data.start,
-#                         "end": word_data.end,
-#                         "duration": word_data.end - word_data.start
-#                     })
-            
-#             print(f"      ✅ 실제 음성 길이: {duration:.2f}초")
-#             print(f"      ✅ 단어 개수: {len(words)}개")
-            
-#             return {
-#                 "scene_id": scene_id,
-#                 "audio_file": str(audio_file),
-#                 "actual_duration": duration,
-#                 "full_text": transcript.text,
-#                 "words": words,
-#                 "tts_text": tts_text
-#             }
-            
-#         except Exception as e:
-#             print(f"      ⚠️  Whisper 분석 실패: {e}")
-#             print(f"      → 음성 파일 기반 추정치 사용")
-            
-#             # 음성 파일 존재하면 추정
-#             if audio_file.exists():
-#                 estimated_duration = len(tts_text) / 5  # 초당 약 5자
-#                 return {
-#                     "scene_id": scene_id,
-#                     "audio_file": str(audio_file),
-#                     "actual_duration": estimated_duration,
-#                     "full_text": tts_text,
-#                     "words": self._estimate_word_timings(tts_text, estimated_duration),
-#                     "tts_text": tts_text,
-#                     "estimated": True
-#                 }
-            
-#             # 최악의 경우 더미
-#             return self._create_dummy_timing(scene)
-    
-#     def _create_dummy_timing(self, scene: dict) -> dict:
-#         """더미 타이밍 데이터 (TTS/Whisper 실패 시)"""
-#         tts_text = scene['narration_tts']
-#         duration = scene['duration'] * 0.95
-        
-#         return {
-#             "scene_id": scene['scene_id'],
-#             "audio_file": "dummy.mp3",
-#             "actual_duration": duration,
-#             "full_text": tts_text,
-#             "words": self._estimate_word_timings(tts_text, duration),
-#             "tts_text": tts_text,
-#             "dummy": True
-#         }
-    
-#     def _estimate_word_timings(self, text: str, total_duration: float) -> List[dict]:
-#         """단어별 타이밍 추정"""
-#         words = text.split()
-#         time_per_word = total_duration / max(len(words), 1)
-        
-#         result = []
-#         current_time = 0.0
-        
-#         for word in words:
-#             result.append({
-#                 "word": word,
-#                 "start": current_time,
-#                 "end": current_time + time_per_word,
-#                 "duration": time_per_word
-#             })
-#             current_time += time_per_word
-        
-#         return result
-
-
-# # ========== Scene Director ==========
-# class SceneDirector:
-#     """씬 분할 전문가 - scene-director.md 참조"""
-    
-#     def __init__(self, reading_script: dict, tts_script: dict, config: Config):
-#         self.reading_script = reading_script
-#         self.tts_script = tts_script
-#         self.config = config
-#         self.total_duration = config.duration
-        
-#         # scene-director.md 로드
-#         self.guidelines = SkillLoader.load("scene-director")
-        
-#         print("\n" + "="*70)
-#         print("📖 Scene Director Skill 로드 완료")
-#         print("="*70)
-    
-#     def split_scenes(self) -> List[Dict]:
-#         """대본 내용을 분석하여 자연스럽게 씬 분할 (scene-director.md 원칙)"""
-#         print("\n🎬 5단계: 씬 분할")
-#         print("-"*70)
-        
-#         # 섹션별 텍스트
-#         sections = {
-#             'hook': self.reading_script['hook'],
-#             'analysis': self.reading_script['analysis'],
-#             'core_math': self.reading_script['core_math'],
-#             'application': self.reading_script['application'],
-#             'outro': self.reading_script['outro']
-#         }
-        
-#         # scene-director.md의 시간 배분
-#         time_distribution = {
-#             'hook': 0.05,       # 5%
-#             'analysis': 0.30,   # 30%
-#             'core_math': 0.40,  # 40%
-#             'application': 0.20, # 20%
-#             'outro': 0.05       # 5%
-#         }
-        
-#         scenes = []
-#         scene_counter = 1
-        
-#         for section_name, text in sections.items():
-#             section_time = int(self.total_duration * time_distribution[section_name])
-            
-#             if not text.strip():
-#                 continue
-            
-#             # 문장 분리
-#             sentences = self._split_into_sentences(text)
-            
-#             if not sentences:
-#                 continue
-            
-#             # 씬 개수 결정 (scene-director.md: 평균 10-20초)
-#             avg_scene_duration = 15
-#             num_scenes = max(1, section_time // avg_scene_duration)
-#             sentences_per_scene = max(1, len(sentences) // num_scenes)
-            
-#             # 씬 생성
-#             for i in range(num_scenes):
-#                 start_idx = i * sentences_per_scene
-#                 end_idx = start_idx + sentences_per_scene if i < num_scenes - 1 else len(sentences)
-                
-#                 scene_sentences = sentences[start_idx:end_idx]
-#                 scene_text = " ".join(scene_sentences)
-                
-#                 # TTS 텍스트 추출
-#                 tts_key = f"{section_name}_tts"
-#                 tts_full = self.tts_script.get(tts_key, scene_text)
-#                 tts_text = self._extract_tts_portion(tts_full, i / num_scenes, (i + 1) / num_scenes)
-                
-#                 # 시간 추정
-#                 duration = self._estimate_duration(scene_text)
-                
-#                 scene = {
-#                     "scene_id": f"s{scene_counter}",
-#                     "section": section_name.replace('_', ' ').title(),
-#                     "duration": duration,
-#                     "narration_display": scene_text,  # 화면 표시용 (숫자/기호)
-#                     "narration_tts": tts_text,        # TTS 음성용 (한글 발음)
-#                     "visual_concept": self._suggest_visual_concept(scene_text, section_name),
-#                     "main_objects": self._suggest_main_objects(scene_text),
-#                     "wow_moment": self._suggest_wow_moment(section_name, i, num_scenes)
-#                 }
-                
-#                 scenes.append(scene)
-#                 scene_counter += 1
-        
-#         # 시간 조정
-#         scenes = self._adjust_scene_timings(scenes)
-        
-#         print(f"✅ 총 {len(scenes)}개 씬 생성 완료")
-#         print(f"⏱️  설계 총 시간: {sum(s['duration'] for s in scenes)}초")
-        
-#         return scenes
-    
-#     def _split_into_sentences(self, text: str) -> List[str]:
-#         """텍스트를 문장으로 분리"""
-#         text = text.replace('\n', ' ').strip()
-#         text = re.sub(r'\s+', ' ', text)
-#         sentences = re.split(r'(?<=[.!?])\s+', text)
-#         return [s.strip() for s in sentences if s.strip()]
-    
-#     def _estimate_duration(self, text: str) -> int:
-#         """텍스트 길이로 시간 추정 (한국어 평균: 분당 300자)"""
-#         char_count = len(text)
-#         duration = (char_count / 300) * 60
-#         return max(5, min(30, int(duration)))
-    
-#     def _extract_tts_portion(self, tts_text: str, start_ratio: float, end_ratio: float) -> str:
-#         """TTS 텍스트의 일부 추출"""
-#         sentences = self._split_into_sentences(tts_text)
-#         total = len(sentences)
-        
-#         if total == 0:
-#             return tts_text
-        
-#         start_idx = int(total * start_ratio)
-#         end_idx = int(total * end_ratio)
-        
-#         return " ".join(sentences[start_idx:end_idx])
-    
-#     def _suggest_visual_concept(self, text: str, section: str) -> str:
-#         """시각적 콘셉트 제안 (scene-director.md 기반)"""
-#         concepts = {
-#             'hook': "흥미로운 질문 → 핵심 개념 Flash",
-#             'analysis': "문제 상황 시각화 → 해결 필요성",
-#             'core_math': "수식 전개 → 개념 설명",
-#             'application': "실생활 적용 사례",
-#             'outro': "전체 요약 → 여운"
-#         }
-#         return concepts.get(section, "기본 설명")
-    
-#     def _suggest_main_objects(self, text: str) -> List[str]:
-#         """주요 객체 제안"""
-#         objects = []
-        
-#         if any(word in text for word in ['함수', 'f(x)', 'g(x)']):
-#             objects.append("MathTex(r'f(x)')")
-        
-#         if any(word in text for word in ['그래프', '곡선']):
-#             objects.append("Axes + FunctionGraph")
-        
-#         if any(word in text for word in ['벡터', '화살표']):
-#             objects.append("Vector / Arrow")
-        
-#         if not objects:
-#             objects.append("Text / MathTex")
-        
-#         return objects
-    
-#     def _suggest_wow_moment(self, section: str, scene_idx: int, total_scenes: int) -> str:
-#         """Wow 모멘트 제안"""
-#         if section == 'hook':
-#             return "Flash 효과"
-#         elif section == 'core_math' and scene_idx == total_scenes - 1:
-#             return "최종 수식 Flash"
-#         elif section == 'application':
-#             return "실생활 사례 시각화"
-#         elif section == 'outro':
-#             return "최종 Flash + 여운"
-#         return "Indicate"
-    
-#     def _adjust_scene_timings(self, scenes: List[Dict]) -> List[Dict]:
-#         """전체 시간 맞추기"""
-#         current_total = sum(s['duration'] for s in scenes)
-#         target = self.total_duration
-        
-#         if current_total == target:
-#             return scenes
-        
-#         ratio = target / current_total
-        
-#         for scene in scenes:
-#             scene['duration'] = max(5, int(scene['duration'] * ratio))
-        
-#         adjusted_total = sum(s['duration'] for s in scenes)
-#         diff = target - adjusted_total
-        
-#         if diff != 0:
-#             scenes[-1]['duration'] += diff
-        
-#         return scenes
-
-
-# # ========== Visual Planner ==========
-# class VisualPlanner:
-#     """연출 계획 수립 - visual-planner.md 참조"""
-    
-#     def __init__(self, scene: dict, config: Config, timing_data: dict):
-#         self.scene = scene
-#         self.config = config
-#         self.timing_data = timing_data
-        
-#         # visual-planner.md 로드
-#         self.guidelines = SkillLoader.load("visual-planner")
-    
-#     def create_plan(self) -> dict:
-#         """연출 계획 (visual-planner.md 출력 형식)"""
-#         print(f"   🎨 [{self.scene['scene_id']}] Visual Planning")
-        
-#         return {
-#             "scene_id": self.scene['scene_id'],
-#             "main_objects": self.scene['main_objects'],
-#             "visual_concept": self.scene['visual_concept'],
-#             "wow_moment": self.scene['wow_moment'],
-#             "duration": self.scene['duration'],
-#             "actual_audio_duration": self.timing_data.get('actual_duration', 0),
-#             "color_scheme": self.config.color_palette,
-#             "style": self.config.background_style,
-#             "camera_work": "정적",  # visual-planner.md 기본값
-#             "difficulty_adaptation": {
-#                 "beginner": "Write + FadeIn 중심",
-#                 "intermediate": "Transform 추가",
-#                 "advanced": "TransformMatchingTex + ValueTracker"
-#             }
-#         }
-
-
-# # ========== Manim Coder ==========
-# class ManimCoder:
-#     """Manim 코드 생성 - manim-coder.md 참조"""
-    
-#     def __init__(self, plan: dict, scene: dict, config: Config, timing_data: dict):
-#         self.plan = plan
-#         self.scene = scene
-#         self.config = config
-#         self.timing_data = timing_data
-        
-#         # manim-coder.md 로드
-#         self.guidelines = SkillLoader.load("manim-coder")
-        
-#         # 타이밍 보정 계산
-#         self.timing_correction = self._calculate_correction()
-    
-#     def _calculate_correction(self) -> dict:
-#         """타이밍 보정 계산"""
-#         designed = self.scene['duration']
-#         actual = self.timing_data.get('actual_duration', designed)
-        
-#         # 애니메이션 기본 시간 (Write + Indicate + FadeOut 등)
-#         animation_base_time = 4.5  # 예상 애니메이션 시간
-        
-#         # 필요한 wait() 시간
-#         needed_wait = actual - animation_base_time
-        
-#         if needed_wait < 0:
-#             return {
-#                 "status": "TOO_SHORT",
-#                 "correction": 0,
-#                 "note": "음성이 너무 짧음. 애니메이션 속도 조정 필요"
-#             }
-        
-#         return {
-#             "status": "OK",
-#             "correction": needed_wait,
-#             "note": f"wait({needed_wait:.2f}) 추가"
-#         }
-    
-#     def generate_code(self) -> str:
-#         """Manim 코드 생성 (manim-coder.md 템플릿)"""
-#         scene_id = self.scene['scene_id']
-#         style = self.config.background_style
-        
-#         print(f"   💻 [{scene_id}] Manim 코드 생성 ({style} 스타일)")
-        
-#         # 스타일별 생성
-#         generators = {
-#             "minimal": self._generate_minimal,
-#             "cyberpunk": self._generate_cyberpunk,
-#             "paper": self._generate_paper,
-#             "space": self._generate_space,
-#             "geometric": self._generate_geometric
-#         }
-        
-#         generator = generators.get(style, self._generate_cyberpunk)
-#         return generator(scene_id)
-    
-#     def _generate_minimal(self, scene_id: str) -> str:
-#         """미니멀 스타일 (manim-coder.md 예시)"""
-#         correction = self.timing_correction['correction']
-#         actual_duration = self.timing_data.get('actual_duration', 0)
-        
-#         return f'''from manim import *
-
-# class {scene_id.capitalize()}(Scene):
-#     """
-#     씬: {self.scene['scene_id']}
-#     섹션: {self.scene['section']}
-#     설계 시간: {self.scene['duration']}초
-#     실제 음성: {actual_duration:.2f}초
-#     """
-    
-#     def construct(self):
-#         # ========== 미니멀 스타일 (manim-coder.md) ==========
-#         self.camera.background_color = BLACK
-        
-#         # ========== Scene Director 데이터 ==========
-#         scene_data = {{
-#             "narration_display": "{self._escape_quotes(self.scene['narration_display'][:80])}...",
-#             "duration": {actual_duration:.2f}
-#         }}
-        
-#         # ========== 컬러 팔레트 ==========
-#         COLOR_PALETTE = {str(self.config.color_palette)}
-        
-#         # ========== 객체 생성 ==========
-#         title = Text(
-#             scene_data["narration_display"],
-#             font="Noto Sans KR",
-#             font_size=48,
-#             color=WHITE
-#         )
-#         title.add_background_rectangle(color=BLACK, opacity=0.7)
-        
-#         # ========== 애니메이션 ==========
-#         self.play(Write(title), run_time=2.0)  # wait_tag_{scene_id}_1
-#         self.wait(1.0)  # wait_tag_{scene_id}_2
-        
-#         self.play(
-#             Indicate(title, scale_factor=1.2),
-#             run_time=1.0
-#         )  # wait_tag_{scene_id}_3
-        
-#         # ⭐ 음성 길이 맞추기 (타이밍 보정)
-#         self.wait({correction:.2f})  # wait_tag_{scene_id}_sync_correction
-        
-#         # ========== 종료 ==========
-#         self.play(FadeOut(title))  # wait_tag_{scene_id}_final
-#         self.wait(0.5)  # wait_tag_{scene_id}_end
-# '''
-    
-#     def _generate_cyberpunk(self, scene_id: str) -> str:
-#         """사이버펑크 스타일"""
-#         correction = self.timing_correction['correction']
-#         actual_duration = self.timing_data.get('actual_duration', 0)
-        
-#         return f'''from manim import *
-
-# class {scene_id.capitalize()}(Scene):
-#     """
-#     씬: {self.scene['scene_id']}
-#     섹션: {self.scene['section']}
-#     설계 시간: {self.scene['duration']}초
-#     실제 음성: {actual_duration:.2f}초
-#     """
-    
-#     def construct(self):
-#         # ========== 사이버펑크 스타일 (manim-coder.md) ==========
-#         self.camera.background_color = "#0a0a0a"
-        
-#         CYBER_CYAN = "#00ffff"
-#         CYBER_MAGENTA = "#ff00ff"
-        
-#         # ========== Scene Director 데이터 ==========
-#         scene_data = {{
-#             "narration_display": "{self._escape_quotes(self.scene['narration_display'][:80])}...",
-#             "duration": {actual_duration:.2f}
-#         }}
-        
-#         # ========== 객체 생성 ==========
-#         title = Text(
-#             scene_data["narration_display"],
-#             font="Noto Sans KR",
-#             font_size=48,
-#             color=CYBER_CYAN
-#         )
-        
-#         # 글로우 효과 (manim-coder.md)
-#         title.set_stroke(width=10, opacity=0.3, color=CYBER_CYAN)
-#         title.add_background_rectangle(color="#0a0a0a", opacity=0.8)
-        
-#         # ========== 애니메이션 ==========
-#         self.play(Write(title), run_time=2.0)  # wait_tag_{scene_id}_1
-#         self.wait(1.0)  # wait_tag_{scene_id}_2
-        
-#         self.play(
-#             Flash(title, color=CYBER_MAGENTA, flash_radius=2.0, num_lines=12),
-#             run_time=1.0
-#         )  # wait_tag_{scene_id}_3
-        
-#         # ⭐ 음성 길이 맞추기 (Whisper 측정값 기준)
-#         self.wait({correction:.2f})  # wait_tag_{scene_id}_sync_correction
-        
-#         # ========== 종료 ==========
-#         self.play(FadeOut(title))  # wait_tag_{scene_id}_final
-#         self.wait(0.5)  # wait_tag_{scene_id}_end
-# '''
-    
-#     def _generate_paper(self, scene_id: str) -> str:
-#         """종이 질감 스타일"""
-#         correction = self.timing_correction['correction']
-#         actual_duration = self.timing_data.get('actual_duration', 0)
-        
-#         return f'''from manim import *
-
-# class {scene_id.capitalize()}(Scene):
-#     """
-#     씬: {self.scene['scene_id']}
-#     섹션: {self.scene['section']}
-#     설계 시간: {self.scene['duration']}초
-#     실제 음성: {actual_duration:.2f}초
-#     """
-    
-#     def construct(self):
-#         # ========== 종이 질감 스타일 ==========
-#         self.camera.background_color = "#f5f5dc"
-        
-#         # ========== 객체 생성 ==========
-#         title = Text(
-#             "{self._escape_quotes(self.scene['narration_display'][:80])}...",
-#             font="Noto Sans KR",
-#             font_size=48,
-#             color=BLACK
-#         )
-        
-#         # ========== 애니메이션 ==========
-#         self.play(Write(title), run_time=2.0)  # wait_tag_{scene_id}_1
-#         self.wait(1.0)  # wait_tag_{scene_id}_2
-        
-#         self.play(
-#             Circumscribe(title, color=DARK_GRAY),
-#             run_time=1.0
-#         )  # wait_tag_{scene_id}_3
-        
-#         self.wait({correction:.2f})  # wait_tag_{scene_id}_sync_correction
-        
-#         # ========== 종료 ==========
-#         self.play(FadeOut(title))  # wait_tag_{scene_id}_final
-#         self.wait(0.5)  # wait_tag_{scene_id}_end
-# '''
-    
-#     def _generate_space(self, scene_id: str) -> str:
-#         """우주 스타일"""
-#         correction = self.timing_correction['correction']
-#         actual_duration = self.timing_data.get('actual_duration', 0)
-        
-#         return f'''from manim import *
-
-# class {scene_id.capitalize()}(Scene):
-#     """
-#     씬: {self.scene['scene_id']}
-#     섹션: {self.scene['section']}
-#     설계 시간: {self.scene['duration']}초
-#     실제 음성: {actual_duration:.2f}초
-#     """
-    
-#     def construct(self):
-#         # ========== 우주 스타일 ==========
-#         self.camera.background_color = "#000011"
-        
-#         SPACE_BLUE = "#4169e1"
-        
-#         # ========== 객체 생성 ==========
-#         title = Text(
-#             "{self._escape_quotes(self.scene['narration_display'][:80])}...",
-#             font="Noto Sans KR",
-#             font_size=48,
-#             color=SPACE_BLUE
-#         )
-#         title.set_stroke(width=8, opacity=0.4, color=SPACE_BLUE)
-        
-#         # ========== 애니메이션 ==========
-#         self.play(Write(title), run_time=2.0)  # wait_tag_{scene_id}_1
-#         self.wait(1.0)  # wait_tag_{scene_id}_2
-        
-#         self.play(
-#             Flash(title, color=WHITE, flash_radius=1.5),
-#             run_time=1.0
-#         )  # wait_tag_{scene_id}_3
-        
-#         self.wait({correction:.2f})  # wait_tag_{scene_id}_sync_correction
-        
-#         # ========== 종료 ==========
-#         self.play(FadeOut(title))  # wait_tag_{scene_id}_final
-#         self.wait(0.5)  # wait_tag_{scene_id}_end
-# '''
-    
-#     def _generate_geometric(self, scene_id: str) -> str:
-#         """기하학 스타일"""
-#         correction = self.timing_correction['correction']
-#         actual_duration = self.timing_data.get('actual_duration', 0)
-        
-#         return f'''from manim import *
-
-# class {scene_id.capitalize()}(Scene):
-#     """
-#     씬: {self.scene['scene_id']}
-#     섹션: {self.scene['section']}
-#     설계 시간: {self.scene['duration']}초
-#     실제 음성: {actual_duration:.2f}초
-#     """
-    
-#     def construct(self):
-#         # ========== 기하학 스타일 ==========
-#         self.camera.background_color = "#1a1a1a"
-        
-#         # ========== 객체 생성 ==========
-#         title = Text(
-#             "{self._escape_quotes(self.scene['narration_display'][:80])}...",
-#             font="Noto Sans KR",
-#             font_size=48,
-#             color=GOLD
-#         )
-        
-#         # ========== 애니메이션 ==========
-#         self.play(Write(title), run_time=2.0)  # wait_tag_{scene_id}_1
-#         self.wait(1.0)  # wait_tag_{scene_id}_2
-        
-#         self.play(
-#             Circumscribe(title, color=GOLD, shape=Rectangle),
-#             run_time=1.0
-#         )  # wait_tag_{scene_id}_3
-        
-#         self.wait({correction:.2f})  # wait_tag_{scene_id}_sync_correction
-        
-#         # ========== 종료 ==========
-#         self.play(FadeOut(title))  # wait_tag_{scene_id}_final
-#         self.wait(0.5)  # wait_tag_{scene_id}_end
-# '''
-    
-#     def _escape_quotes(self, text: str) -> str:
-#         """따옴표 이스케이프"""
-#         return text.replace('"', '\\"').replace("'", "\\'")
-
-
-# # ========== Code Validator ==========
-# class CodeValidator:
-#     """코드 검증 - code-validator.md 참조"""
-    
-#     def __init__(self):
-#         # code-validator.md 로드
-#         self.guidelines = SkillLoader.load("code-validator")
-    
-#     def validate(self, code: str, scene: dict, timing_data: dict) -> dict:
-#         """코드 검증 (code-validator.md 체크리스트)"""
-#         print(f"   🔍 [{scene['scene_id']}] Code Validation")
-        
-#         errors = []
-#         warnings = []
-        
-#         # Phase 1: 문법 검증
-#         self._check_mathtex_rstring(code, errors)
-#         self._check_text_font(code, warnings)
-        
-#         # Phase 2: 로직 검증
-#         self._check_always_redraw(code, errors)
-        
-#         # Phase 3: 타이밍 검증
-#         self._check_wait_tags(code, scene, warnings)
-#         timing_status = self._check_total_timing(code, timing_data, warnings)
-        
-#         # Phase 4: 스타일 검증
-#         # (간소화)
-        
-#         status = "OK" if not errors else "FAILED"
-        
-#         return {
-#             "status": status,
-#             "errors": errors,
-#             "warnings": warnings,
-#             "timing_check": timing_status
-#         }
-    
-#     def _check_mathtex_rstring(self, code: str, errors: List[str]):
-#         """MathTex r-string 확인"""
-#         if 'MathTex(' in code:
-#             pattern = r'MathTex\([^r]"'
-#             if re.search(pattern, code):
-#                 errors.append("MathTex에 r-string 사용 필요")
-    
-#     def _check_text_font(self, code: str, warnings: List[str]):
-#         """한글 폰트 확인"""
-#         if 'Text(' in code:
-#             # 간단 체크
-#             if 'font="Noto Sans KR"' not in code:
-#                 warnings.append("한글 Text에 Noto Sans KR 폰트 권장")
-    
-#     def _check_always_redraw(self, code: str, errors: List[str]):
-#         """always_redraw lambda 확인"""
-#         if 'always_redraw(' in code:
-#             pattern = r'always_redraw\(\s*[^l]'
-#             if re.search(pattern, code):
-#                 errors.append("always_redraw는 lambda 함수 필요")
-    
-#     def _check_wait_tags(self, code: str, scene: dict, warnings: List[str]):
-#         """wait() 태그 확인"""
-#         wait_count = len(re.findall(r'self\.wait\(', code))
-#         tag_count = len(re.findall(r'# wait_tag_', code))
-        
-#         if wait_count != tag_count:
-#             warnings.append(f"wait() 개수({wait_count})와 태그({tag_count}) 불일치")
-    
-#     def _check_total_timing(self, code: str, timing_data: dict, warnings: List[str]) -> dict:
-#         """총 시간 계산"""
-#         # run_time 추출
-#         run_times = re.findall(r'run_time\s*=\s*([0-9.]+)', code)
-#         total_runtime = sum(float(t) for t in run_times)
-        
-#         # wait() 추출
-#         waits = re.findall(r'self\.wait\(([0-9.]+)\)', code)
-#         total_wait = sum(float(w) for w in waits)
-        
-#         # play() without run_time (기본 1초)
-#         plays = len(re.findall(r'self\.play\(', code))
-#         plays_with_runtime = len(run_times)
-#         plays_without = plays - plays_with_runtime
-        
-#         total_animation = total_runtime + total_wait + plays_without
-        
-#         actual_audio = timing_data.get('actual_duration', 0)
-#         diff = abs(total_animation - actual_audio)
-        
-#         if diff > actual_audio * 0.1:  # 10% 이상 차이
-#             warnings.append(f"타이밍 차이: 애니메이션 {total_animation:.1f}초 vs 음성 {actual_audio:.1f}초")
-        
-#         return {
-#             "total_animation_time": total_animation,
-#             "actual_audio_duration": actual_audio,
-#             "difference": diff,
-#             "status": "OK" if diff <= actual_audio * 0.1 else "WARNING"
-#         }
-
-
-# # ========== Image Prompt Writer ==========
-# class ImagePromptWriter:
-#     """배경 이미지 프롬프트 - image-prompt-writer.md 참조"""
-    
-#     def __init__(self):
-#         # image-prompt-writer.md 로드
-#         self.guidelines = SkillLoader.load("image-prompt-writer")
-    
-#     def create_prompt(self, scene: dict, config: Config) -> str:
-#         """배경 프롬프트 생성 (image-prompt-writer.md 템플릿)"""
-#         style = config.background_style
-#         aspect = config.aspect_ratio
-        
-#         # image-prompt-writer.md의 스타일별 프롬프트
-#         prompts = {
-#             "minimal": f"""minimalist mathematical background, clean dark gradient from black center to deep gray edges,
-# subtle geometric pattern in background, no text, no letters, no numbers,
-# center area with soft white glow, suitable for bright yellow equations overlay,
-# {aspect} ratio, high contrast, professional education video background,
-# modern, elegant, simple""",
-            
-#             "cyberpunk": f"""cyberpunk mathematical background, dark futuristic scene with neon cyan and magenta accents,
-# digital grid in background, no text, no letters, no numbers,
-# center area with purple glow, edges darker with cyan highlights,
-# suitable for bright cyan mathematical equations overlay, {aspect} ratio,
-# high tech, neon lights, holographic feel, professional education video""",
-            
-#             "paper": f"""paper texture background, warm beige to cream gradient, subtle paper grain,
-# no text, no letters, no numbers, center area slightly lighter,
-# edges with soft sepia tone, suitable for dark handwritten equations overlay,
-# {aspect} ratio, vintage education aesthetic, natural texture,
-# notebook paper style""",
-            
-#             "space": f"""space background for mathematics, deep blue cosmic scene with distant stars,
-# nebula in dark purple and blue, no text, no letters, no numbers,
-# center area with bright starlight glow, edges darker with galaxy swirls,
-# suitable for bright white mathematical equations overlay, {aspect} ratio,
-# astronomical education aesthetic, mysterious universe""",
-            
-#             "geometric": f"""geometric pattern background, symmetrical mathematical shapes,
-# dark background with golden ratio spiral pattern, no text, no letters, no numbers,
-# center area clean, edges with subtle geometric accents in gray,
-# suitable for yellow mathematical equations overlay, {aspect} ratio,
-# mathematical aesthetic, precise geometry, professional education"""
-#         }
-        
-#         return prompts.get(style, prompts["cyberpunk"])
-
-
-# # ========== Subtitle Designer ==========
-# class SubtitleDesigner:
-#     """자막 시스템 - subtitle-designer.md 참조"""
-    
-#     def __init__(self):
-#         # subtitle-designer.md 로드
-#         self.guidelines = SkillLoader.load("subtitle-designer")
-    
-#     def create_subtitles(self, scene: dict, timing_data: dict, config: Config) -> dict:
-#         """자막 정보 생성 (subtitle-designer.md 레벨)"""
-        
-#         # subtitle-designer.md의 레벨 시스템
-#         subtitle_levels = {
-#             "fixed": 1,     # Level 1: 기본 하단 고정
-#             "karaoke": 3,   # Level 3: 카라오케 스타일
-#             "formula": 4    # Level 4: 수식 연동
-#         }
-        
-#         level = subtitle_levels.get(config.subtitle_style, 1)
-        
-#         # Whisper 단어별 타이밍 활용
-#         words = timing_data.get('words', [])
-        
-#         # narration_display (화면 표시용) 와 매칭
-#         subtitle_data = self._match_display_with_timing(
-#             scene['narration_display'],
-#             words
-#         )
-        
-#         return {
-#             "scene_id": scene['scene_id'],
-#             "subtitle_text": scene['narration_display'],  # 화면용 (숫자/기호)
-#             "audio_text": timing_data.get('full_text', ''),  # 음성용 (한글)
-#             "duration": timing_data.get('actual_duration', scene['duration']),
-#             "level": level,
-#             "style": config.background_style,
-#             "words": subtitle_data
-#         }
-    
-#     def _match_display_with_timing(self, display_text: str, audio_words: List[dict]) -> List[dict]:
-#         """표시용 텍스트와 음성 타이밍 매칭"""
-#         # 간단한 매칭 (실제로는 더 정교한 알고리즘 필요)
-        
-#         if not audio_words:
-#             return []
-        
-#         # display_text를 단어로 분리
-#         display_words = display_text.split()
-        
-#         # 길이 맞추기
-#         if len(display_words) != len(audio_words):
-#             # 비율로 매칭
-#             result = []
-#             ratio = len(audio_words) / max(len(display_words), 1)
-            
-#             for i, disp_word in enumerate(display_words):
-#                 audio_idx = min(int(i * ratio), len(audio_words) - 1)
-#                 audio_word = audio_words[audio_idx]
-                
-#                 result.append({
-#                     "display_text": disp_word,
-#                     "audio_text": audio_word.get('word', ''),
-#                     "start": audio_word.get('start', 0),
-#                     "duration": audio_word.get('duration', 0.5)
-#                 })
-            
-#             return result
-        
-#         # 1:1 매칭
-#         result = []
-#         for disp_word, audio_word in zip(display_words, audio_words):
-#             result.append({
-#                 "display_text": disp_word,
-#                 "audio_text": audio_word.get('word', ''),
-#                 "start": audio_word.get('start', 0),
-#                 "duration": audio_word.get('duration', 0.5)
-#             })
-        
-#         return result
-
-
-# # ========== 메인 파이프라인 ==========
-# class VideoProductionPipeline:
-#     """v5.0 완전 Skills 통합 파이프라인"""
-    
-#     def __init__(self, config: Config):
-#         self.config = config
-#         self.output_dir = Path(f"output/{config.project_id}")
-        
-#         # 폴더 구조
-#         self.folders = {
-#             "audio": self.output_dir / "0_audio",
-#             "script": self.output_dir / "1_script",
-#             "scenes": self.output_dir / "2_scenes",
-#             "plans": self.output_dir / "3_visual_plans",
-#             "code": self.output_dir / "4_manim_code",
-#             "validation": self.output_dir / "5_validation",
-#             "prompts": self.output_dir / "6_image_prompts",
-#             "subtitles": self.output_dir / "7_subtitles",
-#             "renders": self.output_dir / "8_renders"
-#         }
-        
-#         for folder in self.folders.values():
-#             folder.mkdir(parents=True, exist_ok=True)
-        
-#         print(f"\n📁 프로젝트 폴더 생성: {self.output_dir}")
-    
-#     def run(self):
-#         """파이프라인 실행"""
-#         print("\n" + "="*70)
-#         print("🚀 파이프라인 시작")
-#         print("="*70)
-        
-#         # Step 4: 대본 작성
-#         writer = ScriptWriter(self.config)
-#         scripts = writer.generate_script()
-        
-#         reading_script = scripts['reading_script']
-#         tts_script = scripts['tts_script']
-        
-#         # 저장
-#         self.save_json(reading_script, self.folders["script"] / "reading_script.json")
-#         self.save_json(tts_script, self.folders["script"] / "tts_script.json")
-#         self.save_markdown(reading_script, self.folders["script"] / "reading_script.md")
-        
-#         # Step 5: 씬 분할
-#         director = SceneDirector(reading_script, tts_script, self.config)
-#         scenes = director.split_scenes()
-        
-#         self.save_json({"scenes": scenes}, self.folders["scenes"] / "scenes.json")
-        
-#         # Step 6+: 각 씬 처리
-#         tts_gen = OpenAITTSGenerator(self.output_dir, self.config)
-        
-#         print("\n" + "="*70)
-#         print("🎬 씬별 처리 시작 (OpenAI TTS + Whisper)")
-#         print("="*70)
-        
-#         for i, scene in enumerate(scenes, 1):
-#             scene_id = scene['scene_id']
-#             print(f"\n[{i}/{len(scenes)}] 씬 {scene_id} 처리 중...")
-#             print("-"*70)
-            
-#             # ⭐ OpenAI TTS + Whisper 타이밍 측정
-#             timing_data = tts_gen.generate_audio_with_timing(scene)
-#             self.save_json(timing_data, self.folders["audio"] / f"{scene_id}_timing.json")
-            
-#             # 연출 계획
-#             planner = VisualPlanner(scene, self.config, timing_data)
-#             plan = planner.create_plan()
-#             self.save_json(plan, self.folders["plans"] / f"{scene_id}_plan.json")
-            
-#             # Manim 코드 (실제 음성 길이 기준)
-#             coder = ManimCoder(plan, scene, self.config, timing_data)
-#             code = coder.generate_code()
-            
-#             # 검증
-#             validator = CodeValidator()
-#             validation = validator.validate(code, scene, timing_data)
-#             self.save_json(validation, self.folders["validation"] / f"{scene_id}_validation.json")
-            
-#             if validation['status'] == 'FAILED':
-#                 print(f"      ⚠️  검증 실패: {validation['errors']}")
-            
-#             # 코드 저장
-#             code_file = self.folders["code"] / f"{scene_id}_manim.py"
-#             with open(code_file, 'w', encoding='utf-8') as f:
-#                 f.write(code)
-            
-#             print(f"      ✅ 코드 저장: {code_file.name}")
-            
-#             # 배경 프롬프트
-#             prompt_writer = ImagePromptWriter()
-#             prompt = prompt_writer.create_prompt(scene, self.config)
-            
-#             prompt_file = self.folders["prompts"] / f"{scene_id}_background.txt"
-#             with open(prompt_file, 'w', encoding='utf-8') as f:
-#                 f.write(prompt)
-            
-#             # 자막
-#             subtitle_designer = SubtitleDesigner()
-#             subtitles = subtitle_designer.create_subtitles(scene, timing_data, self.config)
-#             self.save_json(subtitles, self.folders["subtitles"] / f"{scene_id}_subtitles.json")
-            
-#             print(f"      ✅ 씬 {scene_id} 완료")
-        
-#         # 요약
-#         self.save_project_summary(reading_script, scenes)
-        
-#         # 렌더링 스크립트 생성
-#         self.generate_render_script(scenes)
-        
-#         print("\n" + "="*70)
-#         print("✅ 전체 파이프라인 완료!")
-#         print("="*70)
-#         print(f"📁 출력 폴더: {self.output_dir}")
-#         print(f"📊 씬 개수: {len(scenes)}개")
-#         print(f"🎨 스타일: {self.config.background_style}")
-#         print(f"📺 자막: {self.config.subtitle_style}")
-#         print("="*70)
-        
-#         # 다음 단계 안내
-#         print("\n📌 다음 단계:")
-#         print(f"1. 음성 파일 확인: {self.folders['audio']}/")
-#         print(f"2. Manim 코드 확인: {self.folders['code']}/")
-#         print(f"3. 렌더링 실행: bash {self.output_dir}/render_all.sh")
-#         print()
-    
-#     def generate_render_script(self, scenes: List[Dict]):
-#         """렌더링 스크립트 생성"""
-#         render_script = self.output_dir / "render_all.sh"
-        
-#         lines = ["#!/bin/bash\n", "# Manim 렌더링 스크립트\n\n"]
-        
-#         for scene in scenes:
-#             scene_id = scene['scene_id']
-#             class_name = scene_id.capitalize()
-#             code_file = self.folders["code"] / f"{scene_id}_manim.py"
-            
-#             lines.append(f"echo '렌더링: {scene_id}...'\n")
-#             lines.append(f"manim -pql {code_file} {class_name}\n\n")
-        
-#         lines.append("echo '모든 씬 렌더링 완료!'\n")
-        
-#         with open(render_script, 'w', encoding='utf-8') as f:
-#             f.writelines(lines)
-        
-#         # 실행 권한 부여
-#         render_script.chmod(0o755)
-        
-#         print(f"\n✅ 렌더링 스크립트 생성: {render_script}")
-    
-#     def save_json(self, data: dict, filepath: Path):
-#         """JSON 저장"""
-#         with open(filepath, 'w', encoding='utf-8') as f:
-#             json.dump(data, f, ensure_ascii=False, indent=2)
-    
-#     def save_markdown(self, script: dict, filepath: Path):
-#         """마크다운 저장"""
-#         content = f"""# {script['title']}
-
-# ## Hook
-# {script.get('hook', '')}
-
-# ## 분석
-# {script.get('analysis', '')}
-
-# ## 핵심 수학
-# {script.get('core_math', '')}
-
-# ## 적용
-# {script.get('application', '')}
-
-# ## 아웃트로
-# {script.get('outro', '')}
-
-# ---
-
-# ## 메타 정보
-# - 난이도: {script['meta']['difficulty']}
-# - 분량: {script['meta']['duration']}초
-# - 생성일: {script['meta']['created_at']}
-# """
-#         with open(filepath, 'w', encoding='utf-8') as f:
-#             f.write(content)
-    
-#     def save_project_summary(self, script: dict, scenes: List[Dict]):
-#         """프로젝트 요약"""
-#         summary = {
-#             "project_id": self.config.project_id,
-#             "title": script['title'],
-#             "created_at": datetime.now().isoformat(),
-#             "config": {
-#                 "background_style": self.config.background_style,
-#                 "voice_style": self.config.voice_style,
-#                 "font_style": self.config.font_style,
-#                 "subtitle_style": self.config.subtitle_style,
-#                 "difficulty": self.config.difficulty,
-#                 "aspect_ratio": self.config.aspect_ratio,
-#                 "duration": self.config.duration,
-#                 "tts_model": self.config.tts_config["model"],
-#                 "tts_voice": self.config.tts_config["voice"]
-#             },
-#             "scenes": {
-#                 "count": len(scenes),
-#                 "scene_ids": [s['scene_id'] for s in scenes],
-#                 "designed_duration": sum(s['duration'] for s in scenes),
-#                 "sections": {}
-#             },
-#             "skills_used": [
-#                 "script-writer.md",
-#                 "scene-director.md",
-#                 "visual-planner.md",
-#                 "manim-coder.md",
-#                 "code-validator.md",
-#                 "image-prompt-writer.md",
-#                 "subtitle-designer.md",
-#                 "OPENAI_TTS_WHISPER_GUIDE.md"
-#             ]
-#         }
-        
-#         # 섹션별 통계
-#         for scene in scenes:
-#             section = scene['section']
-#             if section not in summary['scenes']['sections']:
-#                 summary['scenes']['sections'][section] = {
-#                     "count": 0,
-#                     "duration": 0
-#                 }
-#             summary['scenes']['sections'][section]["count"] += 1
-#             summary['scenes']['sections'][section]["duration"] += scene['duration']
-        
-#         self.save_json(summary, self.output_dir / "project_summary.json")
-
-
-# # ========== 메인 실행 ==========
-# def main():
-#     """메인 함수"""
-#     try:
-#         # Skills 폴더 확인
-#         if not Path("skills").exists():
-#             print("❌ skills 폴더를 찾을 수 없습니다.")
-#             print("현재 디렉토리에 skills/ 폴더가 있는지 확인하세요.")
-#             sys.exit(1)
-        
-#         # Phase 0-3: 대화형 설정
-#         setup = InteractiveSetup()
-#         config = setup.run()
-        
-#         # Phase 4+: 파이프라인 실행
-#         pipeline = VideoProductionPipeline(config)
-#         pipeline.run()
-        
-#     except KeyboardInterrupt:
-#         print("\n\n⚠️  사용자가 중단했습니다.")
-#         print("진행 중인 작업이 중단되었습니다.")
-    
-#     except Exception as e:
-#         print(f"\n\n❌ 오류 발생: {e}")
-#         import traceback
-#         traceback.print_exc()
-
-
-# if __name__ == "__main__":
-#     main()

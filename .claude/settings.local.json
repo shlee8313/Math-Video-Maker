@@ -16,7 +16,32 @@
       "Bash(Remove-Item C:PROJECTMath-Video-MakeroutputP20251229_1027010_audio*.mp3 -Force)",
       "Bash(Remove-Item C:PROJECTMath-Video-MakeroutputP20251229_1027010_audio*.json -Force)",
       "Bash(chcp 65001)",
-      "Bash(start test_ssml_output.mp3)"
+      "Bash(start test_ssml_output.mp3)",
+      "Bash(manim:*)",
+      "Bash(where:*)",
+      "Bash(winget install:*)",
+      "Bash(cmd /c \"ffmpeg -version\")",
+      "Bash(findstr:*)",
+      "Bash(\"C:\\\\Users\\\\pc\\\\AppData\\\\Local\\\\Microsoft\\\\WinGet\\\\Links\\\\ffmpeg.exe\" -version)",
+      "Bash(export PATH=\"$PATH:/mnt/c/Users/pc/AppData/Local/Microsoft/WinGet/Links\")",
+      "Bash(ffmpeg:*)",
+      "Bash(\"C:\\\\Users\\\\pc\\\\AppData\\\\Local\\\\Microsoft\\\\WinGet\\\\Links\\\\ffprobe.exe\" -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 \"C:\\\\PROJECT\\\\Math-Video-Maker\\\\output\\\\P20251229_102701\\\\10_scene_final\\\\s1_final.mp4\")",
+      "Bash(\"C:\\\\Users\\\\pc\\\\AppData\\\\Local\\\\Microsoft\\\\WinGet\\\\Links\\\\ffprobe.exe\" -v error -show_entries format=duration,size -show_entries stream=width,height,codec_name -of json \"C:\\\\PROJECT\\\\Math-Video-Maker\\\\output\\\\P20251229_102701\\\\final_video.mp4\")",
+      "Bash(cmd /c \"type C:\\\\PROJECT\\\\Math-Video-Maker\\\\지시서.md\")",
+      "Bash(copy:*)",
+      "Bash(cmd /c copy:*)",
+      "Bash(cd:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(Remove-Item -Recurse -Force \"C:\\\\PROJECT\\\\Math-Video-Maker\\\\output\\\\P20251229_102701\")",
+      "Bash(git checkout:*)",
+      "Bash(Write-Host \"Audio folder cleared\")",
+      "Bash(cmd /c \"type C:\\\\Users\\\\pc\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--PROJECT-Math-Video-Maker\\\\tasks\\\\b44a627.output | more +1 | find /c \"\":\"\"\")",
+      "Bash(cmd /c \"type C:\\\\Users\\\\pc\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--PROJECT-Math-Video-Maker\\\\tasks\\\\b44a627.output\")",
+      "Bash(python math_video_pipeline.py:*)",
+      "Bash(powershell -Command \"\\(Get-Content ''C:\\\\PROJECT\\\\Math-Video-Maker\\\\CLAUDE.md'' -Raw\\).Length\")",
+      "Bash(del \"C:\\\\PROJECT\\\\Math-Video-Maker\\\\skills\\\\GOOGLE_TTS_WHISPER_GUIDE.md\")",
+      "Bash(powershell -Command \"Remove-Item ''C:\\\\PROJECT\\\\Math-Video-Maker\\\\skills\\\\GOOGLE_TTS_WHISPER_GUIDE.md'' -Force\")"
     ]
   }
 }
