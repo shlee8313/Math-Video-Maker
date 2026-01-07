@@ -201,38 +201,12 @@ Claude가 할 것:
      - 3D 객체는 `fixed_in_frame` 여부
    - **layout_notes**: 배치 의도 설명
 4. 씬별 파일로 저장 → `output/{project_id}/3_visual_prompts/s{n}_layout.json`
-5. **🔴 state.json 즉시 업데이트** (매 10씬 완료 후):
-   ```json
-   {
-     "current_phase": "visual_layout_in_progress",
-     "visual_progress": {
-       "stage": "layout",
-       "completed_scenes": ["s1", "s2", ..., "s10"],
-       "next_scene": "s11"
-     },
-     "files": {
-       "visual_layouts": ["s1_layout.json", ..., "s10_layout.json"]
-     }
-   }
-   ```
+5. 에이전트 완료 후 state.json 자동 업데이트
 
-> ⚠️ **10씬 단위로 /clear 필수 + state.json 업데이트 필수**
->
-> | 조건 | Claude가 할 일 |
-> |------|----------------|
-> | 10씬 완료 | 1. state.json 업데이트 → 2. "10씬 완료. `/clear` 입력 후 '계속'" 안내 |
-> | 모든 씬 Layout 완료 | 1. state.json에 `stage: "layout_completed"` 저장 → 2. Animation 단계로 진행 |
->
-> ```
-> 예시 (50씬 프로젝트):
-> s1~s10 Layout 완료 → state.json 업데이트 → /clear → "계속"
-> s11~s20 Layout 완료 → state.json 업데이트 → /clear → "계속"
-> s21~s30 Layout 완료 → state.json 업데이트 → /clear → "계속"
-> s31~s40 Layout 완료 → state.json 업데이트 → /clear → "계속"
-> s41~s50 Layout 완료 → state.json에 stage="layout_completed" → Animation 단계
-> ```
+> 💡 **Sub-agent 장점**: 에이전트가 별도 컨텍스트에서 실행되므로 메인 대화 컨텍스트 오염 없음
+> → 모든 씬을 한 번에 처리 가능 (기존 10씬마다 /clear 불필요)
 
-✅ **Layout 10씬 완료 후 `/clear` 가능** (state.json 업데이트 후에만!)
+✅ **Layout 전체 완료 후 Animation 단계로 자동 진행**
 
 ---
 
@@ -252,38 +226,12 @@ Claude가 할 것:
    - step, time_range, actions, purpose
    - 나레이션 동기화
 4. 최종 파일로 저장 → `output/{project_id}/3_visual_prompts/s{n}_visual.json`
-5. **🔴 state.json 즉시 업데이트** (매 10씬 완료 후):
-   ```json
-   {
-     "current_phase": "visual_animation_in_progress",
-     "visual_progress": {
-       "stage": "animation",
-       "completed_scenes": ["s1", "s2", ..., "s10"],
-       "next_scene": "s11"
-     },
-     "files": {
-       "visual_prompts": ["s1_visual.json", ..., "s10_visual.json"]
-     }
-   }
-   ```
+5. 에이전트 완료 후 state.json 자동 업데이트
 
-> ⚠️ **10씬 단위로 /clear 필수 + state.json 업데이트 필수**
->
-> | 조건 | Claude가 할 일 |
-> |------|----------------|
-> | 10씬 완료 | 1. state.json 업데이트 → 2. "10씬 완료. `/clear` 입력 후 '계속'" 안내 |
-> | 모든 씬 Animation 완료 | 1. state.json에 `stage: "animation_completed"` 저장 → 2. Review 단계로 진행 |
->
-> ```
-> 예시 (50씬 프로젝트):
-> s1~s10 Animation 완료 → state.json 업데이트 → /clear → "계속"
-> s11~s20 Animation 완료 → state.json 업데이트 → /clear → "계속"
-> s21~s30 Animation 완료 → state.json 업데이트 → /clear → "계속"
-> s31~s40 Animation 완료 → state.json 업데이트 → /clear → "계속"
-> s41~s50 Animation 완료 → state.json에 stage="animation_completed" → Review 단계
-> ```
+> 💡 **Sub-agent 장점**: 에이전트가 별도 컨텍스트에서 실행되므로 메인 대화 컨텍스트 오염 없음
+> → 모든 씬을 한 번에 처리 가능 (기존 10씬마다 /clear 불필요)
 
-✅ **Animation 10씬 완료 후 `/clear` 가능** (state.json 업데이트 후에만!)
+✅ **Animation 전체 완료 후 Review 단계로 자동 진행**
 
 ---
 
@@ -304,74 +252,38 @@ Claude가 할 것:
    - 자동 수정 가능 → 수정 적용
    - 수동 필요 → 목록 보고
 4. 검증 통과 시 → "✅ s{n} 검증 완료" 출력
-5. **🔴 state.json 즉시 업데이트** (매 10씬 완료 후):
-   ```json
-   {
-     "current_phase": "visual_review_in_progress",
-     "visual_progress": {
-       "stage": "review",
-       "completed_scenes": ["s1", "s2", ..., "s10"],
-       "next_scene": "s11"
-     }
-   }
-   ```
+5. 에이전트 완료 후 state.json 자동 업데이트 (`current_phase: "visual_prompts_completed"`)
 
-> ⚠️ **10씬 단위로 /clear 필수 + state.json 업데이트 필수**
->
-> | 조건 | Claude가 할 일 |
-> |------|----------------|
-> | 10씬 완료 | 1. state.json 업데이트 → 2. "10씬 완료. `/clear` 입력 후 '계속'" 안내 |
-> | 모든 씬 Review 완료 | 1. state.json에 `current_phase: "visual_prompts_completed"` 저장 → 2. Manim 코드 단계로 진행 |
->
-> ```
-> 예시 (50씬 프로젝트):
-> s1~s10 Review 완료 → state.json 업데이트 → /clear → "계속"
-> s11~s20 Review 완료 → state.json 업데이트 → /clear → "계속"
-> s21~s30 Review 완료 → state.json 업데이트 → /clear → "계속"
-> s31~s40 Review 완료 → state.json 업데이트 → /clear → "계속"
-> s41~s50 Review 완료 → state.json에 phase="visual_prompts_completed" → Manim 코드 단계
-> ```
+> 💡 **Sub-agent 장점**: 에이전트가 별도 컨텍스트에서 실행되므로 메인 대화 컨텍스트 오염 없음
+> → 모든 씬을 한 번에 처리 가능 (기존 10씬마다 /clear 불필요)
 
-✅ **Review 10씬 완료 후 `/clear` 가능** (state.json 업데이트 후에만!)
+✅ **Review 전체 완료 후 Manim 코드 단계로 자동 진행**
 
 ---
 
-#### Visual Prompter 전체 흐름 요약 (50씬 기준)
+#### Visual Prompter 전체 흐름 요약 (Sub-agents 사용)
 
 ```
-Layout 단계 (10씬/clear):
-├── 세션 1: s1~s10 Layout → state.json 업데이트 → /clear
-├── 세션 2: s11~s20 Layout → state.json 업데이트 → /clear
-├── 세션 3: s21~s30 Layout → state.json 업데이트 → /clear
-├── 세션 4: s31~s40 Layout → state.json 업데이트 → /clear
-└── 세션 5: s41~s50 Layout → state.json (stage=layout_completed) → /clear
+🚀 Sub-agents 도입으로 /clear 횟수 대폭 감소!
 
-Animation 단계 (10씬/clear):
-├── 세션 6: s1~s10 Animation → state.json 업데이트 → /clear
-├── 세션 7: s11~s20 Animation → state.json 업데이트 → /clear
-├── 세션 8: s21~s30 Animation → state.json 업데이트 → /clear
-├── 세션 9: s31~s40 Animation → state.json 업데이트 → /clear
-└── 세션 10: s41~s50 Animation → state.json (stage=animation_completed) → /clear
+Visual Prompter 3단계 (50씬 기준):
+├── visual-layout 에이전트: s1~s50 전체 Layout (별도 컨텍스트)
+├── visual-animation 에이전트: s1~s50 전체 Animation (별도 컨텍스트)
+└── visual-review 에이전트: s1~s50 전체 Review (별도 컨텍스트)
 
-Review 단계 (10씬/clear):
-├── 세션 11: s1~s10 Review → state.json 업데이트 → /clear
-├── 세션 12: s11~s20 Review → state.json 업데이트 → /clear
-├── 세션 13: s21~s30 Review → state.json 업데이트 → /clear
-├── 세션 14: s31~s40 Review → state.json 업데이트 → /clear
-└── 세션 15: s41~s50 Review → state.json (phase=visual_prompts_completed) → 완료
-
-총: 15 /clear 세션 (매 세션마다 state.json 업데이트 필수!)
+메인 대화 컨텍스트 사용량: 최소 (에이전트 호출/결과만)
+→ /clear 필요 없이 전체 단계 완료 가능!
 ```
 
 > 💡 **자동 생성**: 사용자 승인 없이 자동 진행. 수정이 필요하면 "s3 비주얼 수정" 명령 사용.
 >
-> 🔴 **필수**: `/clear` 전에 반드시 state.json 업데이트! 그래야 재개 시 정확한 위치에서 시작
+> 💡 **Sub-agent 장점**: 각 에이전트가 독립 컨텍스트에서 실행 → 메인 대화 컨텍스트 절약
 
-✅ **이 시점에서 `/clear` 가능** (state.json 업데이트 완료 후)
+✅ **Visual Prompter 완료 후 Manim 코드 단계로 진행**
 
 ---
 
-### Step 5: Manim 코드 생성 (15씬 단위)
+### Step 5: Manim 코드 생성
 
 > **Sub-agent 사용**: `manim-coder` 에이전트에게 작업 위임
 > 에이전트가 별도 컨텍스트에서 실행되어 메인 대화 컨텍스트 절약
@@ -380,7 +292,7 @@ Claude가 할 것:
 
 1. **`manim-coder` 에이전트 호출** (Task tool 사용)
    - 에이전트가 `skills/manim-coder-reference.md` 참조
-2. **15씬씩 처리** (s1~s15, s16~s30, s31~s45, s46~끝):
+2. **모든 씬 처리** (별도 컨텍스트에서 실행):
    - Visual Prompter JSON 로드 (`3_visual_prompts/s{n}_visual.json`)
    - 타이밍 데이터 로드 (`0_audio/{scene_id}_timing.json`)
    - JSON을 Python 코드로 변환:
@@ -394,37 +306,12 @@ Claude가 할 것:
      - 컬러 팔레트 준수
      - **PNG 에셋은 ImageMobject + set_height() 사용**
    - `output/{project_id}/4_manim_code/s{n}_manim.py` 저장
-3. **🔴 state.json 즉시 업데이트** (매 15씬 완료 후):
-   ```json
-   {
-     "current_phase": "manim_coding",
-     "scenes": {
-       "completed": ["s1", "s2", ..., "s15"],
-       "current": null,
-       "next_scene": "s16"
-     },
-     "files": {
-       "manim": ["s1_manim.py", ..., "s15_manim.py"]
-     }
-   }
-   ```
+3. 에이전트 완료 후 state.json 자동 업데이트 (`current_phase: "manim_completed"`)
 
-> ⚠️ **15씬 단위로 /clear 필수 + state.json 업데이트 필수**
->
-> | 조건 | Claude가 할 일 |
-> |------|----------------|
-> | 15씬 완료 | 1. state.json 업데이트 → 2. "15씬 완료. `/clear` 입력 후 '계속'" 안내 |
-> | 모든 씬 코드 완료 | 1. state.json에 `current_phase: "manim_completed"` 저장 → 2. 배경 이미지 단계로 진행 |
->
-> ```
-> 예시 (56씬 프로젝트):
-> s1~s15 코드 완료 → state.json 업데이트 → /clear → "계속"
-> s16~s30 코드 완료 → state.json 업데이트 → /clear → "계속"
-> s31~s45 코드 완료 → state.json 업데이트 → /clear → "계속"
-> s46~s56 코드 완료 → state.json에 phase="manim_completed" → 배경 이미지 단계
-> ```
+> 💡 **Sub-agent 장점**: 에이전트가 별도 컨텍스트에서 실행되므로 메인 대화 컨텍스트 오염 없음
+> → 모든 씬을 한 번에 처리 가능 (기존 15씬마다 /clear 불필요)
 
-✅ **15씬 완료 후 `/clear` 가능** (state.json 업데이트 후에만!)
+✅ **Manim 코드 전체 완료 후 배경 이미지 단계로 진행**
 
 #### 필수 코드 규칙
 
@@ -541,29 +428,27 @@ Claude가 할 것:
 
 ---
 
-## 🔄 /clear 가능 지점
+## 🔄 /clear 가능 지점 (Sub-agents 도입 후)
 
-> 각 Step 완료 후 ✅ 표시된 시점에서 `/clear` 가능. "계속" 입력으로 재개.
+> 🚀 **Sub-agents 도입으로 /clear 횟수 대폭 감소!**
+> 에이전트가 별도 컨텍스트에서 실행되어 메인 대화 오염 최소화
 
 ### /clear 가능 지점 요약
 
-| 지점   | 타이밍                     | 저장된 파일                       | state.json phase         | visual_progress | 재개 명령 |
-| ------ | -------------------------- | --------------------------------- | ------------------------ | --------------- | --------- |
-| #2     | 대본 승인 후               | `1_script/*.json`                 | script_approved          | - | "계속" |
-| #3     | 씬 분할 승인 후            | `2_scenes/scenes.json`            | scenes_approved          | - | "계속" |
-| #3.5   | 에셋 체크 완료 후          | `assets/` 폴더 PNG 파일들         | assets_checked           | - | "계속" |
-| #4     | TTS 생성 완료 후           | `0_audio/*.mp3, *.json`           | tts_completed            | - | "계속" |
-| #4.5a  | Layout 10씬 완료 후        | `3_visual_prompts/s*_layout.json` | visual_layout_in_progress | stage="layout", next_scene="s11" | "계속" |
-| #4.5a  | Layout 전체 완료           | 모든 `*_layout.json`              | visual_layout_in_progress | stage="layout_completed" | "계속" |
-| #4.5b  | Animation 10씬 완료 후     | `3_visual_prompts/s*_visual.json` | visual_animation_in_progress | stage="animation", next_scene="s11" | "계속" |
-| #4.5b  | Animation 전체 완료        | 모든 `*_visual.json`              | visual_animation_in_progress | stage="animation_completed" | "계속" |
-| #4.5c  | Review 10씬 완료 후        | `3_visual_prompts/s*_visual.json` | visual_review_in_progress | stage="review", next_scene="s11" | "계속" |
-| #4.5c  | Review 전체 완료           | 모든 `*_visual.json` 검증됨       | visual_prompts_completed | - (삭제) | "계속" |
-| #5     | 15씬 코드 완료 후          | `4_manim_code/s1~s15_manim.py`    | manim_coding             | next_scene="s16" | "계속" |
-| #5     | 모든 코드 완료 후          | 모든 `_manim.py`                  | manim_completed          | - | "계속" |
-| #5.1   | 코드 검증 완료 후          | 모든 `_manim.py` 검증됨           | manim_validated          | - | "계속" |
-| #5.5   | 이미지 준비 완료 후        | `9_backgrounds/*.png`             | images_ready             | - | "렌더링" |
-| #6     | Manim 렌더링 완료 후       | `8_renders/*.mp4`                 | rendered                 | - | "자막 생성" |
+| 지점   | 타이밍                     | 저장된 파일                       | state.json phase         | 재개 명령 |
+| ------ | -------------------------- | --------------------------------- | ------------------------ | --------- |
+| #2     | 대본 승인 후               | `1_script/*.json`                 | script_approved          | "계속" |
+| #3     | 씬 분할 승인 후            | `2_scenes/scenes.json`            | scenes_approved          | "계속" |
+| #3.5   | 에셋 체크 완료 후          | `assets/` 폴더 PNG 파일들         | assets_checked           | "계속" |
+| #4     | TTS 생성 완료 후           | `0_audio/*.mp3, *.json`           | tts_completed            | "계속" |
+| #4.5   | **Visual Prompter 전체 완료** | 모든 `*_visual.json`           | visual_prompts_completed | "계속" |
+| #5     | **Manim 코드 전체 완료**   | 모든 `_manim.py`                  | manim_completed          | "계속" |
+| #5.1   | 코드 검증 완료 후          | 모든 `_manim.py` 검증됨           | manim_validated          | "계속" |
+| #5.5   | 이미지 준비 완료 후        | `9_backgrounds/*.png`             | images_ready             | "렌더링" |
+| #6     | Manim 렌더링 완료 후       | `8_renders/*.mp4`                 | rendered                 | "자막 생성" |
+
+> 💡 **변경 사항**: Visual Prompter와 Manim Coder가 Sub-agents로 실행되어
+> 기존 10씬/15씬 단위 /clear가 불필요해짐
 
 ### ⚠️ /clear 금지 구간
 
@@ -573,8 +458,9 @@ Claude가 할 것:
 | 씬 분할 **중**           | 승인 전이라 저장 안 됨 |
 | 에셋 체크 **중**         | 확인 완료 전           |
 | TTS 생성 **중**          | API 호출 중단됨        |
-| Visual Prompter **중**   | 씬별 파일 생성 중      |
-| 특정 씬 코드 작성 **중** | 해당 씬 코드 유실      |
+
+> 💡 **Sub-agents 실행 중**: 에이전트가 별도 컨텍스트에서 실행되므로
+> 메인 대화에서는 에이전트 완료를 기다리면 됨 (컨텍스트 오염 없음)
 
 ### /clear 후 재개 방법
 
@@ -583,31 +469,24 @@ Claude가 할 것:
 Claude: state.json 읽고 현재 단계 파악 → 이어서 진행
 ```
 
-### 권장 워크플로우 (토큰 절약, 56씬 기준)
+### 권장 워크플로우 (Sub-agents 사용, 56씬 기준)
 
 ```
+🚀 기존 27세션 → 7~8세션으로 감소!
+
 준비 단계:
-├── 세션 1: 시작 → 대본 승인 → /clear
-├── 세션 2: 계속 → 씬 분할 승인 → /clear
-├── 세션 3: 계속 → 에셋 체크 → 에셋 준비 → /clear
-└── 세션 4: 계속 → TTS 생성 → /clear
+├── 세션 1: 시작 → 대본 승인 → /clear (선택)
+├── 세션 2: 씬 분할 → 에셋 체크 → /clear (선택)
+└── 세션 3: TTS 생성 완료
 
-Visual Prompter (3단계, 10씬/세션):
-├── 세션 5~10: Layout s1~s10, s11~s20, s21~s30, s31~s40, s41~s50, s51~s56
-├── 세션 11~16: Animation s1~s10, s11~s20, s21~s30, s31~s40, s41~s50, s51~s56
-└── 세션 17~22: Review s1~s10, s11~s20, s21~s30, s31~s40, s41~s50, s51~s56
-
-Manim 코드 (15씬/세션):
-├── 세션 23: s1~s15 코드 → /clear
-├── 세션 24: s16~s30 코드 → /clear
-├── 세션 25: s31~s45 코드 → /clear
-└── 세션 26: s46~s56 코드 → /clear
-
-코드 검증:
-└── 세션 27: 전체 코드 검증 (Step 5.1) → /clear
+Visual Prompter + Manim 코드 (Sub-agents):
+├── 세션 4: visual-layout 에이전트 → 전체 Layout 완료
+├── 세션 5: visual-animation 에이전트 → 전체 Animation 완료
+├── 세션 6: visual-review 에이전트 → 전체 Review 완료
+└── 세션 7: manim-coder 에이전트 → 전체 코드 완료
 
 마무리:
-└── 렌더링 → 합성
+└── 세션 8: 렌더링 → 자막 → 합성 → 완료
 ```
 
 ---
@@ -654,27 +533,7 @@ Manim 코드 (15씬/세션):
 }
 ```
 
-### 🔴 Visual Prompter 단계 state.json 필수 필드
-
-```json
-{
-  "visual_progress": {
-    "stage": "layout | animation | review | layout_completed | animation_completed",
-    "completed_scenes": ["s1", "s2", ...],
-    "next_scene": "s11"
-  }
-}
-```
-
-| stage 값 | 의미 | 재개 시 동작 |
-|----------|------|-------------|
-| `layout` | Layout 진행 중 | next_scene부터 Layout 계속 |
-| `layout_completed` | Layout 전체 완료 | Animation s1부터 시작 |
-| `animation` | Animation 진행 중 | next_scene부터 Animation 계속 |
-| `animation_completed` | Animation 전체 완료 | Review s1부터 시작 |
-| `review` | Review 진행 중 | next_scene부터 Review 계속 |
-
-### state.json 자동 업데이트 규칙
+### state.json 자동 업데이트 규칙 (Sub-agents 사용)
 
 | 단계 완료  | current_phase                  | 주요 업데이트                                       |
 | ---------- | ------------------------------ | --------------------------------------------------- |
@@ -682,41 +541,25 @@ Manim 코드 (15씬/세션):
 | Step 3     | scenes_approved                | files.scenes, scenes.total/pending, assets.required |
 | Step 3.5   | assets_checked                 | assets.available, assets.missing=[]                 |
 | Step 4     | tts_completed                  | files.audio[]                                       |
-| **Step 4.5a (10씬마다)** | visual_layout_in_progress | **visual_progress.stage, completed_scenes, next_scene**, files.visual_layouts[] |
-| **Step 4.5a (전체완료)** | visual_layout_in_progress | visual_progress.stage="layout_completed" |
-| **Step 4.5b (10씬마다)** | visual_animation_in_progress | **visual_progress.stage, completed_scenes, next_scene**, files.visual_prompts[] |
-| **Step 4.5b (전체완료)** | visual_animation_in_progress | visual_progress.stage="animation_completed" |
-| **Step 4.5c (10씬마다)** | visual_review_in_progress | **visual_progress.stage, completed_scenes, next_scene** |
-| **Step 4.5c (전체완료)** | visual_prompts_completed | visual_progress 삭제 가능 |
-| **Step 5 (15씬마다)** | manim_coding | **scenes.completed[], scenes.next_scene**, files.manim[] |
-| **Step 5 (전체완료)** | manim_completed | scenes.next_scene 삭제 |
+| **Step 4.5 (전체완료)** | visual_prompts_completed | files.visual_prompts[] (에이전트가 자동 업데이트) |
+| **Step 5 (전체완료)** | manim_completed | files.manim[] (에이전트가 자동 업데이트) |
 | Step 5.5   | images_ready                   | files.images[]                                      |
 | Step 6     | rendered                       | -                                                   |
 | Step 7     | completed                      | files.final_video                                   |
 
-### ⚠️ /clear 전 state.json 업데이트 체크리스트
+### 💡 Sub-agents와 state.json
 
-Visual Prompter 단계에서 `/clear` 하기 전에 반드시 확인:
+> Sub-agents 사용 시 각 에이전트가 작업 완료 후 state.json을 자동 업데이트합니다.
+> 사용자가 수동으로 체크할 필요 없음!
 
-```
-☐ visual_progress.completed_scenes에 방금 완료한 씬들 추가됨
-☐ visual_progress.next_scene이 다음 시작 씬으로 설정됨
-☐ files.visual_layouts[] 또는 files.visual_prompts[]에 파일 추가됨
-☐ last_updated 타임스탬프 갱신됨
-```
-
-**예시: s26~s35 Animation 완료 후**
+**에이전트 완료 후 자동 업데이트 예시:**
 ```json
 {
-  "current_phase": "visual_animation_in_progress",
-  "visual_progress": {
-    "stage": "animation",
-    "completed_scenes": ["s1", ..., "s35"],
-    "next_scene": "s36"
-  },
+  "current_phase": "visual_prompts_completed",
   "files": {
-    "visual_prompts": ["s1_visual.json", ..., "s35_visual.json"]
-  }
+    "visual_prompts": ["s1_visual.json", ..., "s50_visual.json"]
+  },
+  "last_updated": "2025-06-15T14:35:00"
 }
 ```
 
