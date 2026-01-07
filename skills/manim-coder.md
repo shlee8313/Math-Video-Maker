@@ -1,431 +1,644 @@
 # Manim Coder Skill
 
-## 역할
+> ⚠️ **필수**: 이 파일과 함께 **`manim-coder-reference.md`를 반드시 읽으세요.**
+> 해당 파일에 객체 타입별 변환, 애니메이션 변환, 코드 템플릿이 있습니다.
 
-Manim Community Edition 코드 구현 전문가. 연출 계획을 Python 코드로 변환.
+## Manim 코드 구현 전문가
+
+### 역할 정의
+
+당신은 Manim Community Edition 코드 구현 전문가입니다.
+Manim Visual Prompter가 작성한 **시각 명세(JSON)**를 Python 코드로 변환합니다.
+
+**핵심 원칙:**
+
+- **"무엇을(What)"** → Scene Director가 결정 (완료)
+- **"어떻게(How)"** → Visual Prompter가 결정 (완료)
+- **"코드로(Code)"** → Manim Coder (이 문서)
+
+**Manim Coder의 책임:**
+
+- Visual Prompter JSON → Python 코드 변환
+- Manim 문법 정확성 보장
+- 절대 규칙 준수 (r-string, 폰트, wait 태그 등)
+- 에러 발생 시 조정 및 수정
+
+**Manim Coder가 하지 않는 것:**
+
+- 위치/크기 임의 변경 → Visual Prompter가 지정한 값 사용
+- 색상 임의 변경 → Visual Prompter가 지정한 값 사용
+- 애니메이션 순서 변경 → Visual Prompter의 sequence 따름
+- 객체 추가/삭제 → Visual Prompter의 objects 따름
+
+**예외 상황:**
+
+- Visual Prompter 명세에 오류가 있을 경우 → 조정 후 주석으로 표시
+- 화면 밖 좌표 → 안전 영역으로 조정
+- 시간 초과 → run_time 조정
 
 > 📚 상세 패턴은 `manim-coder-reference.md` 참조
 
 ---
 
-## 절대 규칙 (CRITICAL)
+## 입력 정보
 
-1. 모든 수식은 `MathTex(r"...")` 형식
-2. 수식 변화는 `TransformMatchingTex` 우선
-3. 모든 `wait()`에 주석: `# wait_tag_s[씬번호]_[순서]`
-4. Text는 `font="Noto Sans KR"` 필수
-5. 중괄호 `{}` 짝 맞추기
-6. `always_redraw`는 반드시 `lambda` 사용
-7. 캐릭터/물체는 `ImageMobject` 사용 (직접 그리기 금지!)
-8. 에셋 경로는 `"assets/..."` 형식
-9. 3D 객체 → `ThreeDScene` + `set_camera_orientation()` 필수
-10. 자막은 Manim에서 처리하지 않음 (FFmpeg/SRT)
+### 1. Visual Prompter에서 받는 것 (`s#_visual.json`)
+
+각 씬별로 상세한 시각 명세를 받습니다.
+
+```json
+{
+  "scene_id": "s3",
+  "is_3d": false,
+  "scene_class": "Scene",
+  "style": "minimal",
+  "total_duration": 14.2,
+
+  "canvas": {
+    "background": "#000000",
+    "safe_margin": 0.5
+  },
+
+  "objects": [
+    {
+      "id": "snack_normal",
+      "type": "ImageMobject",
+      "source": "assets/objects/snack_bag_normal.png",
+      "size": { "height": 3.0, "note": "SOLO_MAIN" },
+      "position": { "method": "shift", "x": -2.5, "y": 0 },
+      "z_index": 1
+    },
+    {
+      "id": "equation",
+      "type": "MathTex",
+      "tex_parts": [
+        { "tex": "100g", "color": "YELLOW" },
+        { "tex": "\\rightarrow", "color": "WHITE" },
+        { "tex": "80g", "color": "GREEN" }
+      ],
+      "font_size": 64,
+      "position": { "method": "shift", "x": 0, "y": -2 }
+    }
+  ],
+
+  "sequence": [
+    {
+      "step": 1,
+      "time_range": [0, 1.8],
+      "sync_with": "가격은 그대로인데",
+      "actions": [{ "type": "FadeIn", "target": "snack_normal", "run_time": 1.0 }],
+      "purpose": "기준 물체 등장"
+    },
+    {
+      "step": 2,
+      "time_range": [1.8, 3.5],
+      "sync_with": "용량이 줄었습니다",
+      "actions": [
+        { "type": "Write", "target": "equation", "run_time": 1.5 }
+      ],
+      "wait": {
+        "duration": "remaining",
+        "tag": "wait_tag_s3_2"
+      },
+      "purpose": "수치 표현"
+    }
+  ],
+
+  "visual_notes": {
+    "layout_principle": "좌우 대비 (Before-After)",
+    "focal_point": "equation",
+    "color_strategy": "어두운 배경 + 밝은 객체"
+  }
+}
+```
+
+### 2. timing.json (참고용)
+
+TTS 생성 후의 실제 음성 길이입니다. Visual Prompter가 이미 반영했으므로 참고용입니다.
 
 ---
 
-## 📐 에셋 크기 기준 시스템 (CRITICAL)
+### 입력 필드 설명
 
-**핵심: 졸라맨을 기준으로 모든 에셋 크기 설정**
+#### objects 배열
+
+| 필드             | 설명        | Manim Coder 사용법            |
+| ---------------- | ----------- | ----------------------------- |
+| `id`             | 객체 식별자 | 변수명으로 사용               |
+| `type`           | 객체 타입   | Manim 클래스 결정             |
+| `source`         | 이미지 경로 | ImageMobject 인자             |
+| `size`           | 크기 정보   | set_height() 또는 생성자 인자 |
+| `position`       | 위치 정보   | shift/next_to/to_edge 메서드  |
+| `tex_parts`      | 수식 분리   | MathTex 인자 + 부분 색상      |
+| `color`          | 단일 색상   | set_color()                   |
+| `font_size`      | 글자 크기   | 생성자 인자                   |
+| `z_index`        | 레이어 순서 | set_z_index()                 |
+| `glow`           | 발광 효과   | stroke copy 기법              |
+| `weight`         | 텍스트 굵기 | weight=BOLD                   |
+| `fixed_in_frame` | 3D 고정     | add_fixed_in_frame_mobjects() |
+
+#### sequence 배열
+
+| 필드         | 설명      | Manim Coder 사용법           |
+| ------------ | --------- | ---------------------------- |
+| `step`       | 단계 번호 | 주석 참고용                  |
+| `time_range` | 시간 범위 | run_time 합계 검증           |
+| `actions`    | 액션 목록 | self.play() 또는 self.wait() |
+| `wait`       | 대기 정보 | remaining 계산               |
+| `purpose`    | 목적      | 주석으로 표시                |
+
+> 📚 상세 변환 규칙은 `manim-coder-reference.md` 참조
+
+---
+
+## 객체 타입 변환 요약표
+
+| Visual Prompter type   | Manim 클래스           | 핵심 변환                                    |
+| ---------------------- | ---------------------- | -------------------------------------------- |
+| `ImageMobject`         | `ImageMobject`         | .png 파일, set_height()                      |
+| `SVGMobject`           | `SVGMobject`           | .svg 파일, set_height(), 색상 변경 가능      |
+| `Text`                 | `Text`                 | font="Noto Sans KR" 필수                     |
+| `MathTex`              | `MathTex`              | r"..." 필수, tex_parts → 분리 인자           |
+| `TextMathGroup`        | `VGroup`               | components → 개별 생성 후 arrange()          |
+| `Arrow`                | `Arrow`                | ref.anchor → get\_\*() 메서드                |
+| `SurroundingRectangle` | `SurroundingRectangle` | target → 첫 번째 인자                        |
+| `Circle`               | `Circle`               | radius → 인자                                |
+| `Rectangle`            | `Rectangle`            | width, height → 인자                         |
+| `RoundedRectangle`     | `RoundedRectangle`     | corner_radius, width, height → 인자          |
+| `Line`                 | `Line`                 | start, end → 좌표 변환                       |
+| `DashedLine`           | `DashedLine`           | start, end → 좌표 변환                       |
+| `Cross`                | `Cross`                | scale → scale_factor, stroke_width           |
+| `FunctionGraph`        | `FunctionGraph`        | function 문자열 → lambda 변환                |
+| `Dot`                  | `Dot`                  | radius → 인자                                |
+| `Axes`                 | `Axes`                 | x_range, y_range 등 → 인자                   |
+| `Cube`                 | `Cube`                 | side_length → 인자, ThreeDScene 필수         |
+| `Sphere`               | `Sphere`               | radius → 인자, ThreeDScene 필수              |
+| `Cylinder`             | `Cylinder`             | radius, height → 인자, ThreeDScene 필수      |
+| `Cone`                 | `Cone`                 | base_radius, height → 인자, ThreeDScene 필수 |
+
+> **참고:** 아이콘(`icons/`)은 SVG 또는 PNG일 수 있음. 확장자 확인 후 적절한 클래스 사용!
+>
+> 📚 상세 JSON/코드 예시는 `manim-coder-reference.md` 참조
+
+---
+
+## 절대 규칙
+
+**반드시 지켜야 하는 규칙입니다. 예외 없음.**
+
+---
+
+### 1. MathTex에는 반드시 r-string 사용
 
 ```python
-STICKMAN_HEIGHT = 4  # 화면 높이(8)의 50% = 기준!
+# ❌ 틀림 - 이스케이프 에러 발생
+equation = MathTex("\frac{1}{2}")
 
-# ❌ scale() - 예측 불가능
+# ✅ 맞음 - raw string
+equation = MathTex(r"\frac{1}{2}")
+```
+
+**tex_parts 변환 시에도 동일:**
+
+```python
+# ✅ 모든 인자에 r"..." 사용
+eq = MathTex(r"(x-1)", r"(x-2)", r"=", r"0", font_size=56)
+```
+
+---
+
+### 2. 한글 텍스트에는 반드시 font 지정
+
+```python
+# ❌ 틀림 - 한글 깨짐
+text = Text("안녕하세요")
+
+# ✅ 맞음
+text = Text("안녕하세요", font="Noto Sans KR")
+```
+
+**Visual Prompter에서 항상 `font: "Noto Sans KR"` 제공하지만, 누락 시 직접 추가**
+
+---
+
+### 3. MathTex에 한글 금지
+
+```python
+# ❌ 틀림 - LaTeX는 한글 미지원
+equation = MathTex(r"\text{확률} = p")
+
+# ✅ 맞음 - TextMathGroup으로 분리
+text_part = Text("확률", font="Noto Sans KR", font_size=48)
+math_part = MathTex(r"= p", font_size=48)
+group = VGroup(text_part, math_part).arrange(RIGHT, buff=0.3)
+```
+
+---
+
+### 4. 이미지는 set_height() 사용, scale() 금지
+
+```python
+# ❌ 틀림 - 일관성 없음
+stickman = ImageMobject("assets/characters/stickman.png")
 stickman.scale(0.5)
 
-# ✅ set_height() - 예측 가능
-stickman.set_height(STICKMAN_HEIGHT)
-snack_bag.set_height(STICKMAN_HEIGHT * 0.30)
-```
-
-### 크기 비율표
-
-| 유형            | 비율    | set_height               |
-| --------------- | ------- | ------------------------ |
-| 캐릭터 (주인공) | 100%    | `STICKMAN_HEIGHT`        |
-| 캐릭터 (서브)   | 80%     | `STICKMAN_HEIGHT * 0.80` |
-| 손에 드는 물건  | 25~35%  | `STICKMAN_HEIGHT * 0.30` |
-| 중간 물체       | 40~60%  | `STICKMAN_HEIGHT * 0.50` |
-| 큰 물체         | 70~100% | `STICKMAN_HEIGHT * 0.80` |
-| 머리 위 아이콘  | 15~25%  | `STICKMAN_HEIGHT * 0.20` |
-| 강조 아이콘     | 30~50%  | `STICKMAN_HEIGHT * 0.40` |
-
-### 📍 단독 물체 크기 및 위치 (캐릭터 없이 등장할 때)
-
-**문제:** 캐릭터와 함께 나올 때 기준(30~50%)으로 물체를 단독 배치하면 너무 작음
-
-```python
-# ========== 단독 물체 크기 ==========
-SOLO_MAIN = 3.0      # 화면의 37% - 주인공급 물체
-SOLO_LARGE = 4.0     # 화면의 50% - 강조할 때
-SOLO_WITH_LABEL = 2.5  # 라벨과 함께 나올 때
-SOLO_ICON = 2.0      # 아이콘 강조
-
-# 예시
-snack = ImageMobject("assets/objects/snack_bag.png")
-snack.set_height(SOLO_MAIN)  # 3.0 (단독)
-# vs
-snack.set_height(STICKMAN_HEIGHT * 0.30)  # 1.2 (캐릭터와 함께)
-```
-
-**크기 비교표:**
-
-| 상황 | 크기 | 화면 비율 |
-|------|------|----------|
-| 캐릭터 + 물체 | 1.2~2.0 | 15~25% |
-| **물체 단독** | **3.0** | **37%** |
-| **물체 강조** | **4.0** | **50%** |
-| **아이콘 단독** | **2.0~2.5** | **25~31%** |
-
-**단독 물체 위치:**
-
-```python
-# 1. 화면 중앙 (기본)
-object.move_to(ORIGIN)
-
-# 2. 약간 위 (하단에 수식/텍스트 공간 확보)
-object.move_to(UP * 0.5)
-
-# 3. 좌측 물체 + 우측 설명
-object.shift(LEFT * 2.5)
-label.next_to(object, RIGHT, buff=1.0)
-
-# 4. 상단 물체 + 하단 수식
-object.shift(UP * 1)
-equation.shift(DOWN * 2)
-```
-
-**레이아웃 패턴:**
-
-```
-┌─────────────────────────────────┐
-│         [제목 영역]              │  UP * 3.5
-│                                 │
-│         ┌───────┐               │
-│         │ 물체  │  ← ORIGIN     │  중앙
-│         └───────┘   또는 UP*0.5 │
-│                                 │
-│       수식 또는 설명             │  DOWN * 2
-└─────────────────────────────────┘
-```
-
-| 상황 | 물체 위치 | 보조 요소 위치 |
-|------|----------|---------------|
-| 물체만 강조 | `ORIGIN` | - |
-| 물체 + 수식 | `UP * 1` | 수식: `DOWN * 2` |
-| 물체 + 라벨 | `LEFT * 2` | 라벨: `RIGHT * 2` |
-| 물체 비교 (2개) | `LEFT * 2.5` | 두번째: `RIGHT * 2.5` |
-| 물체 나열 (3개) | `LEFT * 3.5` | 중앙 `ORIGIN`, `RIGHT * 3.5` |
-
----
-
-## 📝 텍스트/수식 크기 기준
-
-### font_size 기준 (생성 시)
-
-```python
-# ========== 텍스트/수식 font_size ==========
-TITLE_SIZE = 72          # 제목, 섹션명
-EQUATION_MAIN = 64       # 주요 수식
-EQUATION_SUB = 48        # 보조 수식, 설명
-TEXT_NORMAL = 48         # 일반 텍스트
-TEXT_LABEL = 36          # 라벨, 축 레이블
-
-# 예시
-title = Text("피타고라스 정리", font="Noto Sans KR", font_size=72)
-equation = MathTex(r"a^2 + b^2 = c^2", font_size=64)
-label = Text("빗변", font="Noto Sans KR", font_size=36)
-```
-
-### scale() 기준 (상황별 조정)
-
-**원칙:** `font_size`로 기본 크기 설정 → `scale()`로 상황별 조정
-
-```python
-# ========== scale 상황별 ==========
-SCALE_SOLO = 1.5         # 단독 등장 (강조)
-SCALE_EMPHASIS = 1.8     # 특별 강조
-SCALE_WITH_OBJECTS = 1.0 # 다른 요소와 함께
-SCALE_SMALL = 0.8        # 공간 부족 시
-
-# 예시: 수식 단독 등장
-equation = MathTex(r"E = mc^2", font_size=64)
-equation.scale(1.5)  # 단독이라 크게
-
-# 예시: 물체와 함께
-equation = MathTex(r"V = lwh", font_size=64)
-equation.scale(1.0)  # 물체랑 같이 있어서 기본
-```
-
-### 상황별 크기표
-
-| 상황 | font_size | scale | 결과 |
-|------|-----------|-------|------|
-| **제목 단독** | 72 | 1.3 | 매우 큼 |
-| **수식 단독** | 64 | **1.5** | 큼 (강조) |
-| 수식 + 물체/캐릭터 | 64 | 1.0 | 보통 |
-| 보조 수식 | 48 | 1.0 | 작음 |
-| 라벨/축 | 36 | 1.0 | 작음 |
-| **결과 강조** | 64 | **1.8** | 매우 큼 |
-
-### 📍 텍스트/수식 위치
-
-```python
-# 제목: 상단
-title.to_edge(UP, buff=0.5)
-
-# 수식 단독: 중앙 또는 약간 위
-equation.move_to(ORIGIN)
-equation.move_to(UP * 0.5)  # 설명 공간 확보
-
-# 수식 + 물체: 물체 옆 또는 아래
-equation.next_to(object, RIGHT, buff=1.0)
-equation.next_to(object, DOWN, buff=0.8)
-
-# 수식 여러 줄: VGroup으로 정렬
-equations = VGroup(eq1, eq2, eq3).arrange(DOWN, buff=0.5)
-equations.move_to(ORIGIN)
-```
-
-| 상황 | 위치 |
-|------|------|
-| 제목 | `to_edge(UP, buff=0.5)` |
-| 수식 단독 | `ORIGIN` 또는 `UP * 0.5` |
-| 수식 + 물체 | `next_to(물체, RIGHT/DOWN)` |
-| 수식 여러 개 | `VGroup(...).arrange(DOWN)` |
-| 결과 강조 | `ORIGIN` + `scale(1.8)` |
-
-### 가독성 향상
-
-```python
-# 배경과 대비 (어두운 배경)
-equation.set_stroke(width=8, background=True)  # 그림자
-
-# 배경 박스 추가
-equation.add_background_rectangle(color=BLACK, opacity=0.7, buff=0.2)
-
-# 수식 부분 색상
-eq = MathTex("x", "^2", "+", "2x", "=", "0")
-eq[0].set_color(YELLOW)   # x
-eq[3].set_color(YELLOW)   # 2x
-eq[5].set_color(GREEN)    # 결과
+# ✅ 맞음 - 절대 높이 지정
+stickman = ImageMobject("assets/characters/stickman.png")
+stickman.set_height(4.0)
 ```
 
 ---
 
-## 🧊 3D 씬 규칙
+### 5. 색상은 반드시 HEX 코드 또는 Manim 기본 상수만 사용
 
-| 객체                                 | Scene 클래스       |
-| ------------------------------------ | ------------------ |
-| `Cube`, `Cylinder`, `Sphere`, `Cone` | `ThreeDScene` 필수 |
-| `Square`, `Circle`, `MathTex`        | `Scene`            |
-
-### 📐 3D 객체 크기 기준
-
-**주의:** 3D는 원근법으로 작아 보이므로 2D보다 크게 설정!
+Manim Community Edition에서 정의되지 않은 색상 상수가 있습니다.
 
 ```python
-# ========== 3D 크기 기준 ==========
-# 캐릭터와 함께
-CUBE_WITH_CHAR = 2.0       # side_length
-SPHERE_WITH_CHAR = 1.2     # radius
-CYLINDER_WITH_CHAR = (0.8, 2.0)  # (radius, height)
+# ❌ 틀림 - CYAN, MAGENTA는 Manim에서 정의되지 않음
+text = Text("예시", color=CYAN)      # NameError 발생!
+text = Text("예시", color=MAGENTA)   # NameError 발생!
 
-# 단독 등장 (더 크게!)
-CUBE_SOLO = 3.0            # side_length
-SPHERE_SOLO = 2.0          # radius
-CYLINDER_SOLO = (1.2, 3.0) # (radius, height)
+# ✅ 맞음 - HEX 코드 사용
+text = Text("예시", color="#00FFFF")  # CYAN 대신
+text = Text("예시", color="#FF00FF")  # MAGENTA 대신
 
-# 강조/클로즈업
-CUBE_EMPHASIS = 4.0        # side_length
+# ✅ 맞음 - Manim 기본 상수 사용
+text = Text("예시", color=WHITE)
+text = Text("예시", color=YELLOW)
+text = Text("예시", color=RED)
+text = Text("예시", color=GREEN)
+text = Text("예시", color=BLUE)
+text = Text("예시", color=ORANGE)
+text = Text("예시", color=PINK)
+text = Text("예시", color=TEAL)
+text = Text("예시", color=GRAY_B)
 ```
 
-**크기 비교표:**
+**사용 가능한 Manim 기본 색상:**
+`WHITE`, `BLACK`, `GRAY`, `GRAY_A`, `GRAY_B`, `GRAY_C`, `GRAY_D`, `GRAY_E`,
+`RED`, `GREEN`, `BLUE`, `YELLOW`, `ORANGE`, `PINK`, `TEAL`, `PURPLE`, `GOLD`
 
-| 상황 | Cube side | Sphere radius | Cylinder (r, h) |
-|------|-----------|---------------|-----------------|
-| 캐릭터와 함께 | 2.0 | 1.2 | (0.8, 2.0) |
-| **단독 등장** | **3.0** | **2.0** | **(1.2, 3.0)** |
-| **강조** | **4.0** | **2.5** | **(1.5, 4.0)** |
+**HEX 코드로 대체해야 하는 색상:**
 
-### 📍 3D 객체 위치
+| 색상명   | HEX 코드    |
+| -------- | ----------- |
+| CYAN     | `"#00FFFF"` |
+| MAGENTA  | `"#FF00FF"` |
+| LIME     | `"#00FF00"` |
+| AQUA     | `"#00FFFF"` |
+
+---
+
+### 6. 모든 self.play()와 self.wait() 뒤에 wait_tag 주석
+
+자막 동기화를 위해 필수입니다.
 
 ```python
-# 기본: 중앙 (카메라가 비스듬히 보므로 ORIGIN이 적절)
-cube.move_to(ORIGIN)
+# ✅ 맞음
+self.play(FadeIn(obj), run_time=1.0)  # wait_tag_s3_1
+self.wait(1.5)  # wait_tag_s3_2
+self.play(Write(eq), run_time=2.0)  # wait_tag_s3_3
 
-# 약간 아래로 (수식 공간 확보)
-cube.shift(DOWN * 0.5)
-
-# 2개 비교
-cube1.shift(LEFT * 2.5)
-cube2.shift(RIGHT * 2.5)
-
-# 3개 나열
-obj1.shift(LEFT * 3.5)
-obj2.move_to(ORIGIN)
-obj3.shift(RIGHT * 3.5)
+# ❌ 틀림 - 태그 누락
+self.play(FadeIn(obj), run_time=1.0)
+self.wait(1.5)
 ```
 
-**3D 위치 주의사항:**
-- 3D에서는 `UP/DOWN` 이동 시 깊이감이 달라 보임
-- 비교 시 `LEFT/RIGHT`만 사용 권장
-- 수직 배치보다 **수평 배치** 선호
+**태그 형식:** `wait_tag_s{씬번호}_{순서}`
 
-### 🎥 카메라 각도 용도
+---
 
-```python
-# 기본 등각뷰 (권장) - 3면이 균형있게 보임
-self.set_camera_orientation(phi=60*DEGREES, theta=-45*DEGREES)
-
-# 위에서 내려다봄 - 윗면/단면 강조
-self.set_camera_orientation(phi=75*DEGREES, theta=-45*DEGREES)
-
-# 옆에서 봄 - 높이/측면 강조
-self.set_camera_orientation(phi=30*DEGREES, theta=-45*DEGREES)
-
-# 정면 - 2D처럼 보임 (비권장)
-self.set_camera_orientation(phi=0*DEGREES, theta=-90*DEGREES)
-```
-
-| 용도 | phi | theta | 설명 |
-|------|-----|-------|------|
-| **기본 (권장)** | 60° | -45° | 3면 균형, 입체감 |
-| 윗면 강조 | 75° | -45° | 단면적, 전개도 |
-| 측면 강조 | 30° | -45° | 높이, 부피 비교 |
-| 회전 시작점 | 60° | 0° | 정면에서 회전 |
-
-### 3D 코드 템플릿
+### 7. 3D 씬에서 텍스트는 add_fixed_in_frame_mobjects() 필수
 
 ```python
+# ❌ 틀림 - 텍스트가 3D 공간에서 회전함
 class Scene7(ThreeDScene):
     def construct(self):
-        # ========== 카메라 설정 (필수!) ==========
-        self.set_camera_orientation(phi=60*DEGREES, theta=-45*DEGREES)
+        label = MathTex(r"V = a^3")
+        self.play(Write(label))
 
-        # ========== 3D 크기 기준 ==========
-        CUBE_SOLO = 3.0
-
-        # ========== 3D 객체 생성 ==========
-        cube = Cube(side_length=CUBE_SOLO, fill_opacity=0.7, fill_color=ORANGE)
-        cube.set_stroke(color=WHITE, width=2)
-        cube.move_to(ORIGIN)
-
-        # ========== 라벨 (3D에서 텍스트) ==========
-        label = MathTex(r"V = a^3", color=YELLOW)
-        label.scale(1.2)
-        label.next_to(cube, DOWN, buff=0.8)
-        self.add_fixed_in_frame_mobjects(label)  # 텍스트 고정!
-
-        # ========== 애니메이션 ==========
-        self.play(Create(cube))  # wait_tag_s7_1
-        self.play(Write(label))  # wait_tag_s7_2
-        self.play(Rotate(cube, angle=PI/2, axis=UP), run_time=2)  # wait_tag_s7_3
-        self.wait(1)  # wait_tag_s7_final
-```
-
-**3D 텍스트 주의:** `add_fixed_in_frame_mobjects()`로 텍스트 고정 필수!
-
----
-
-## 코드 템플릿
-
-```python
-from manim import *
-
-class Scene2(Scene):
+# ✅ 맞음 - 텍스트 고정
+class Scene7(ThreeDScene):
     def construct(self):
-        # ========== 📏 크기 기준 ==========
-        STICKMAN_HEIGHT = 4
+        label = MathTex(r"V = a^3")
+        self.add_fixed_in_frame_mobjects(label)
+        self.play(Write(label))  # wait_tag_s7_1
+```
 
-        # ========== 컬러 팔레트 ==========
-        COLOR = {"variable": YELLOW, "result": GREEN, "emphasis": RED}
+**Visual Prompter JSON에서 `fixed_in_frame: true` 확인**
 
-        # ========== 에셋 로드 ==========
-        stickman = ImageMobject("assets/characters/stickman_confused.png")
-        stickman.set_height(STICKMAN_HEIGHT)
-        stickman.shift(LEFT * 3)
+---
 
-        snack_bag = ImageMobject("assets/objects/snack_bag_normal.png")
-        snack_bag.set_height(STICKMAN_HEIGHT * 0.30)
-        snack_bag.next_to(stickman, RIGHT, buff=1.0)
+### 8. 3D 씬에서 카메라 설정 필수
 
-        question = ImageMobject("assets/icons/question_mark.png")
-        question.set_height(STICKMAN_HEIGHT * 0.20)
-        question.next_to(stickman, UP, buff=0.3)
+```python
+# ❌ 틀림 - 3D 객체가 2D처럼 보임
+class Scene7(ThreeDScene):
+    def construct(self):
+        cube = Cube()
+        self.add(cube)
 
-        # ========== 애니메이션 ==========
-        self.play(FadeIn(stickman))  # wait_tag_s2_1
-        self.wait(0.5)  # wait_tag_s2_2
-        self.play(FadeIn(snack_bag))  # wait_tag_s2_3
-        self.wait(1)  # wait_tag_s2_final
+# ✅ 맞음 - 카메라 설정
+class Scene7(ThreeDScene):
+    def construct(self):
+        self.set_camera_orientation(phi=60*DEGREES, theta=-45*DEGREES)
+        cube = Cube()
+        self.play(Create(cube))  # wait_tag_s7_1
 ```
 
 ---
 
-## 컬러 팔레트
+### 9. 에셋 경로는 assets/부터 시작
 
-| 배경                                     | 팔레트                              |
-| ---------------------------------------- | ----------------------------------- |
-| 어두운 (minimal, cyberpunk, stickman 등) | `WHITE, YELLOW, ORANGE, GREEN, RED` |
-| 밝은 (paper)                             | `BLACK, #1a237e, #bf360c, #1b5e20`  |
+```python
+# ❌ 틀림
+ImageMobject("stickman.png")
+ImageMobject("./assets/characters/stickman.png")
+ImageMobject("C:/project/assets/stickman.png")
+
+# ✅ 맞음
+ImageMobject("assets/characters/stickman.png")
+```
 
 ---
 
-## 🚫 금지 패턴
+### 10. always_redraw는 lambda 필수
 
 ```python
-# ❌ 캐릭터 직접 그리기
-head = Circle(radius=0.3)
-body = Line(ORIGIN, DOWN)
+# ❌ 틀림 - 즉시 평가됨
+number = always_redraw(DecimalNumber(tracker.get_value()))
 
-# ❌ 에셋(ImageMobject)에 scale() 사용
-stickman.scale(0.5)  # 예측 불가능!
-snack.scale(2.0)     # ❌
+# ✅ 맞음 - lambda로 지연 평가
+number = always_redraw(lambda: DecimalNumber(tracker.get_value()))
+```
 
-# ✅ 에셋은 set_height() 사용
-stickman.set_height(STICKMAN_HEIGHT)
-snack.set_height(SOLO_MAIN)
+---
 
-# ✅ 텍스트/수식에는 scale() 허용
-equation.scale(1.5)  # OK - 텍스트는 scale 가능
-title.scale(1.3)     # OK
+### 11. 씬 클래스명은 Scene{번호} 형식
 
-# ❌ 일반 Scene에서 3D 객체
-class Scene7(Scene):
-    cube = Cube()  # 에러!
+```python
+# ✅ 맞음
+class Scene1(Scene):
+class Scene2(Scene):
+class Scene7(ThreeDScene):
 
-# ✅ 올바른 방법
-stickman = ImageMobject("assets/characters/stickman_neutral.png")
-stickman.set_height(STICKMAN_HEIGHT)
+# ❌ 틀림
+class MyScene(Scene):
+class IntroScene(Scene):
+```
+
+---
+
+### 12. 화살표와 물음표는 텍스트/MathTex 사용 금지 → SVG 에셋 사용
+
+화살표와 물음표를 텍스트나 MathTex로 사용하면 예쁘지 않습니다. 반드시 SVG 에셋을 사용하세요.
+
+```python
+# ❌ 틀림 - 텍스트로 화살표/물음표 사용
+arrow = MathTex(r"\rightarrow")
+arrow = Text("→")
+question = Text("?")
+question = MathTex(r"?")
+
+# ✅ 맞음 - SVG 에셋 사용
+arrow = SVGMobject("assets/icons/arrow_right.svg")
+arrow.set_height(0.8)
+
+question = SVGMobject("assets/icons/question_mark.svg")
+question.set_height(1.0)
+```
+
+**사용 가능한 화살표 SVG:**
+
+| 파일명 | 용도 |
+|--------|------|
+| `arrow_right.svg` | 오른쪽 화살표 → |
+| `arrow_left.svg` | 왼쪽 화살표 ← |
+| `arrow_up.svg` | 위쪽 화살표 ↑ |
+| `arrow_down.svg` | 아래쪽 화살표 ↓ |
+| `arrow_diagonal_down.svg` | 좌→우 하향 대각선 화살표 ↘ |
+| `arrow_diagonal_up.svg` | 좌→우 상향 대각선 화살표 ↗ |
+| `arrow_bidirectional.svg` | 양방향 화살표 ↔ |
+| `arrow_vertical_bidirectional.svg` | 수직 양방향 화살표 ↕ |
+
+**기호 SVG:**
+
+| 파일명 | 용도 |
+|--------|------|
+| `question_mark.svg` | 물음표 ? |
+| `exclamation_mark.svg` | 느낌표 ! |
+
+**체크/상태 SVG:**
+
+| 파일명 | 용도 |
+|--------|------|
+| `checkmark.svg` | 체크마크 ✓ (정답, 완료) |
+| `crossmark.svg` | 엑스마크 ✗ (오답, 금지) |
+| `circle_empty.svg` | 빈 원 ○ (미선택) |
+| `circle_filled.svg` | 채워진 원 ● (선택됨) |
+
+**수학기호(강조용) SVG:**
+
+| 파일명 | 용도 |
+|--------|------|
+| `infinity_emphasis.svg` | 무한대 ∞ |
+| `approximately_emphasis.svg` | 근사 ≈ |
+| `not_equal_emphasis.svg` | 같지 않음 ≠ |
+| `less_equal_emphasis.svg` | 작거나 같음 ≤ |
+| `greater_equal_emphasis.svg` | 크거나 같음 ≥ |
+
+**강조 SVG:**
+
+| 파일명 | 용도 |
+|--------|------|
+| `star_filled.svg` | 채워진 별 ★ (중요) |
+| `star_empty.svg` | 빈 별 ☆ |
+| `heart_filled.svg` | 채워진 하트 ♥ |
+| `diamond_filled.svg` | 채워진 다이아몬드 ♦ |
+| `lightning.svg` | 번개 ⚡ (빠름, 에너지) |
+| `warning_triangle.svg` | 경고 삼각형 ⚠ (주의) |
+
+> **예외**: `Arrow()` Manim 클래스는 사용 가능 (두 점을 연결하는 화살표)
+> 텍스트/수식 내의 기호(→, ?, !)만 SVG 사용
+
+```python
+# ✅ Manim Arrow 클래스는 사용 가능 (두 점 연결용)
+arrow = Arrow(start=LEFT*2, end=RIGHT*2, color=WHITE)
+
+# ❌ 수식 내 화살표는 SVG 사용
+eq = MathTex(r"A \rightarrow B")  # 안 예쁨
+
+# ✅ 수식 + SVG 조합
+a_text = MathTex(r"A")
+arrow = SVGMobject("assets/icons/arrow_right.svg").set_height(0.5)
+b_text = MathTex(r"B")
+group = VGroup(a_text, arrow, b_text).arrange(RIGHT, buff=0.3)
+```
+
+---
+
+## 크기 기준 (검증용)
+
+Visual Prompter가 제공한 크기 값이 적절한지 검증하는 기준입니다.
+값이 크게 벗어나면 조정하고 주석으로 표시합니다.
+
+---
+
+### 에셋 크기 기준
+
+#### 기준 상수
+
+| 상수              | 값  | 용도           |
+| ----------------- | --- | -------------- |
+| `STICKMAN_HEIGHT` | 4.0 | 캐릭터 높이    |
+| `SOLO_MAIN`       | 3.0 | 단독 물체 높이 |
+
+#### 캐릭터와 함께하는 물체
+
+| 유형           | 비율   | height 값 | 허용 범위 |
+| -------------- | ------ | --------- | --------- |
+| 캐릭터         | 100%   | 4.0       | 3.5 ~ 4.5 |
+| 손에 드는 물건 | 25~35% | 1.0 ~ 1.4 | 0.8 ~ 1.6 |
+| 중간 물체      | 40~60% | 1.6 ~ 2.4 | 1.4 ~ 2.6 |
+| 머리 위 아이콘 | 15~25% | 0.6 ~ 1.0 | 0.5 ~ 1.2 |
+
+#### 물체 단독 등장
+
+| 상황        | height 값 | 허용 범위 |
+| ----------- | --------- | --------- |
+| 기본        | 3.0       | 2.5 ~ 3.5 |
+| 강조        | 4.0       | 3.5 ~ 4.5 |
+| 라벨과 함께 | 2.5       | 2.0 ~ 3.0 |
+
+---
+
+### 텍스트/수식 크기 기준
+
+#### font_size 기준
+
+| 역할      | font_size | 허용 범위 |
+| --------- | --------- | --------- |
+| 제목      | 72        | 64 ~ 80   |
+| 주요 수식 | 64        | 56 ~ 72   |
+| 보조 수식 | 48        | 40 ~ 56   |
+| 라벨/주석 | 36        | 32 ~ 44   |
+
+---
+
+### 위치 안전 범위
+
+객체가 화면 밖으로 나가지 않도록 검증합니다.
+
+| 축  | 안전 범위  | 최대 범위  |
+| --- | ---------- | ---------- |
+| x   | -6.0 ~ 6.0 | -7.0 ~ 7.0 |
+| y   | -3.5 ~ 3.5 | -4.0 ~ 4.0 |
+
+**검증 후 조정 예시:**
+
+```python
+# Visual Prompter: {"x": -8, "y": 0}
+# 안전 범위 초과 → 조정
+obj.shift(LEFT * 6)  # 조정됨: -8 → -6 (화면 안전 영역)
+```
+
+---
+
+### 크기/위치 조정 시 주석
+
+Visual Prompter 값을 조정한 경우 주석으로 표시합니다.
+
+```python
+# Visual Prompter: height=5.0 → 조정: 4.0 (STICKMAN_HEIGHT 기준 초과)
+stickman.set_height(4.0)
+
+# Visual Prompter: x=-8 → 조정: x=-6 (안전 영역 초과)
+obj.shift(LEFT * 6)
 ```
 
 ---
 
 ## 체크리스트
 
-### 기본 규칙
-- [ ] `STICKMAN_HEIGHT = 4` 정의
-- [ ] 모든 에셋 `set_height()` 사용 (scale 금지)
-- [ ] 모든 `MathTex`에 `r"..."` 사용
-- [ ] 모든 `Text`에 `font="Noto Sans KR"`
-- [ ] 모든 `wait()`에 태그 주석
-- [ ] 캐릭터/물체 → `ImageMobject`
+코드 작성 완료 후 확인하세요.
 
-### 크기 확인
-- [ ] 캐릭터와 함께 → 물체 `STICKMAN_HEIGHT * 0.30~0.50`
-- [ ] 물체 단독 → `SOLO_MAIN = 3.0` 이상
-- [ ] 수식 단독 → `font_size=64` + `scale(1.5)`
-- [ ] 수식 + 물체 → `font_size=64` + `scale(1.0)`
+### 기본 구조
 
-### 3D 씬
-- [ ] 3D 객체 → `ThreeDScene` 클래스
-- [ ] `set_camera_orientation(phi=60*DEGREES, theta=-45*DEGREES)`
-- [ ] 3D 단독 → `CUBE_SOLO = 3.0` 이상
-- [ ] 3D 텍스트 → `add_fixed_in_frame_mobjects()` 사용
+- [ ] 클래스명이 `Scene{번호}` 형식인가?
+- [ ] 3D 씬은 `ThreeDScene` 상속했는가?
+- [ ] `from manim import *` 있는가?
+- [ ] `def construct(self):` 있는가?
 
-### 위치 확인
-- [ ] 단독 물체/수식 → `ORIGIN` 또는 `UP * 0.5`
-- [ ] 물체 + 수식 → 물체 `UP * 1`, 수식 `DOWN * 2`
-- [ ] 2개 비교 → `LEFT * 2.5`, `RIGHT * 2.5`
-- [ ] 3개 나열 → `LEFT * 3.5`, `ORIGIN`, `RIGHT * 3.5`
+### 절대 규칙
+
+- [ ] 모든 MathTex에 `r"..."` 사용했는가?
+- [ ] 모든 한글 Text에 `font="Noto Sans KR"` 있는가?
+- [ ] MathTex에 한글이 포함되어 있지 않은가?
+- [ ] 모든 ImageMobject에 `set_height()` 사용했는가? (scale 아님)
+- [ ] 에셋 경로가 `assets/...`로 시작하는가?
+- [ ] 모든 `self.play()`와 `self.wait()` 뒤에 `# wait_tag_s#_#` 있는가?
+- [ ] 색상에 `CYAN`, `MAGENTA` 등 정의되지 않은 상수를 사용하지 않았는가? (HEX 코드 사용)
+- [ ] 화살표(→←↑↓↗↘↔)나 물음표(?)를 Text/MathTex로 사용하지 않았는가? (SVG 에셋 사용)
+
+### 객체 생성
+
+- [ ] Visual Prompter의 모든 objects가 생성되었는가?
+- [ ] 변수명이 Visual Prompter의 `id`와 일치하는가?
+- [ ] tex_parts 사용 시 각 부분의 색상이 적용되었는가?
+- [ ] TextMathGroup은 VGroup으로 묶었는가?
+- [ ] 위치가 Visual Prompter 명세대로 적용되었는가?
+- [ ] z_index가 있으면 set_z_index() 적용했는가?
+- [ ] glow가 있으면 stroke copy 기법 적용했는가?
+
+### 시퀀스
+
+- [ ] Visual Prompter의 모든 sequence step이 구현되었는가?
+- [ ] 애니메이션 순서가 sequence와 일치하는가?
+- [ ] `simultaneous: true` 액션들이 같은 `self.play()`에 있는가?
+- [ ] AnimationGroup 사용 시 lag_ratio 적용했는가?
+- [ ] run_time이 Visual Prompter 명세와 일치하는가?
+- [ ] wait remaining이 있으면 계산해서 적용했는가?
+- [ ] 마지막에 `wait_tag_s#_final` 있는가?
+
+### 3D 씬 (해당 시)
+
+- [ ] `ThreeDScene` 상속했는가?
+- [ ] `self.set_camera_orientation()` 있는가?
+- [ ] phi, theta에 `*DEGREES` 곱했는가?
+- [ ] 모든 Text/MathTex에 `self.add_fixed_in_frame_mobjects()` 했는가?
+- [ ] `begin_ambient_camera_rotation` 사용 시 `stop_ambient_camera_rotation` 있는가?
+
+### 타이밍
+
+- [ ] 총 애니메이션 시간이 `total_duration`과 대략 일치하는가?
+- [ ] wait 태그 번호가 연속적인가? (1, 2, 3, ...)
+
+---
+
+## 작업 흐름 요약
+
+```
+1. Visual Prompter에서 받는 것:
+   └── 3_visual_prompts/s#_visual.json
+
+2. Manim Coder 작업:
+   ├── JSON → Python 변환
+   │   ├── objects → 객체 생성 코드
+   │   ├── sequence → 애니메이션 코드
+   │   └── 3D 설정 → 카메라/fixed_in_frame
+   ├── 절대 규칙 준수
+   ├── 크기/위치 검증
+   └── wait_tag 추가
+
+3. 출력:
+   └── 4_manim_code/s#_manim.py
+
+4. 에러 발생 시:
+   ├── 자동 조정 가능 → 주석으로 표시 후 진행
+   └── 자동 조정 불가 → 사용자에게 보고
+
+5. 다음 단계:
+   └── Step 5.5: 배경 이미지 생성 또는 Step 6: 렌더링
+```
+
+> 📚 상세 변환 규칙, 코드 템플릿, 에러 처리는 `manim-coder-reference.md` 참조

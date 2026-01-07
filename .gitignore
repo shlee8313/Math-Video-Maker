@@ -207,3 +207,4 @@ draft/
 # 실험용 파일
 experiment_*.py
 playground_*.py
+nul

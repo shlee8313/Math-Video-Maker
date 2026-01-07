@@ -68,6 +68,22 @@ except ImportError:
 
 import wave
 
+# Supabase (에셋 관리)
+try:
+    from supabase import create_client, Client as SupabaseClient
+    SUPABASE_AVAILABLE = True
+except ImportError:
+    SUPABASE_AVAILABLE = False
+    print("⚠️  Supabase 라이브러리가 설치되지 않았습니다.")
+    print("   설치: pip install supabase")
+
+# PIL (이미지 메타데이터)
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+
 
 # ============================================================================
 # 커스텀 예외 클래스
@@ -172,18 +188,25 @@ STATE_FILE = PROJECT_ROOT / "state.json"
 OUTPUT_DIR = PROJECT_ROOT / "output"
 SKILLS_DIR = PROJECT_ROOT / "skills"
 
-# TTS 설정 (OpenAI TTS)
+# TTS 설정 (OpenAI gpt-4o-mini-tts)
 TTS_CONFIG = {
     "voices": {
-        "alloy": "중성적, 균형잡힌 (기본값)",
+        "ash": "차분한 남성 (기본값)",
+        "alloy": "중성적, 균형잡힌",
+        "ballad": "부드러운 낭독",
+        "coral": "따뜻한 여성",
         "echo": "남성적, 차분함",
         "fable": "영국식 억양",
         "onyx": "남성적, 깊은 목소리",
         "nova": "여성적, 밝고 친근",
-        "shimmer": "여성적, 부드러움"
+        "sage": "지적인 톤",
+        "shimmer": "여성적, 부드러움",
+        "verse": "표현력 풍부",
+        "marin": "고품질",
+        "cedar": "고품질"
     },
-    "default_voice": "onyx",
-    "model": "tts-1-hd",
+    "default_voice": "alloy",
+    "model": "gpt-4o-mini-tts",
     "audio_encoding": "MP3"
 }
 
@@ -252,7 +275,7 @@ class StateManager:
         """state.json 로드"""
         if self._state is not None:
             return self._state
-        
+
         if self.state_file.exists():
             try:
                 with open(self.state_file, 'r', encoding='utf-8') as f:
@@ -262,8 +285,13 @@ class StateManager:
                 self._state = self._default_state()
         else:
             self._state = self._default_state()
-        
+
         return self._state
+
+    def reload(self) -> Dict[str, Any]:
+        """state.json 강제 재로드 (캐시 무시)"""
+        self._state = None
+        return self.load()
     
     def save(self) -> None:
         """state.json 저장"""
@@ -781,17 +809,27 @@ class ProjectManager:
 # ============================================================================
 
 class TTSGenerator:
-    """OpenAI TTS - 문장별 분할 생성"""
+    """OpenAI TTS (gpt-4o-mini-tts) - 문장별 분할 생성"""
 
-    # OpenAI TTS 지원 음성
+    # OpenAI gpt-4o-mini-tts 지원 음성 (13개)
     OPENAI_VOICES = {
-        "alloy": "중성적, 균형잡힌 (기본값)",
+        "alloy": "중성적, 균형잡힌",
+        "ash": "차분한 남성 [기본값]",
+        "ballad": "부드러운 낭독",
+        "coral": "따뜻한 여성",
         "echo": "남성적, 차분함",
         "fable": "영국식 억양",
         "onyx": "남성적, 깊은 목소리",
         "nova": "여성적, 밝고 친근",
+        "sage": "지적인 톤",
         "shimmer": "여성적, 부드러움",
+        "verse": "표현력 풍부",
+        "marin": "고품질 추천",
+        "cedar": "고품질 추천",
     }
+
+    # 한국어 TTS 기본 instructions
+    DEFAULT_INSTRUCTIONS = "Speak in a deep, calm, educational Korean tone with clear pronunciation."
 
     def __init__(self, state_manager: StateManager):
         self.state = state_manager
@@ -845,16 +883,22 @@ class TTSGenerator:
             json.dump(timing_data, f, ensure_ascii=False, indent=2)
         print(f"   📁 부분 저장: {timing_file}")
 
-    def _generate_openai_tts(self, text: str, voice: str, output_file: Path, max_retries: int = 3) -> bool:
-        """OpenAI TTS로 음성 생성 (MP3 출력)"""
+    def _generate_openai_tts(self, text: str, voice: str, output_file: Path,
+                              instructions: str = None, max_retries: int = 3) -> bool:
+        """OpenAI gpt-4o-mini-tts로 음성 생성 (MP3 출력)"""
         import time
+
+        # instructions 기본값
+        if instructions is None:
+            instructions = self.DEFAULT_INSTRUCTIONS
 
         for attempt in range(max_retries):
             try:
                 response = self.openai_client.audio.speech.create(
-                    model="tts-1-hd",  # 고품질 모델
+                    model="gpt-4o-mini-tts",  # 새 모델 (한국어 품질 개선, 저렴)
                     voice=voice,
                     input=text,
+                    instructions=instructions,  # 음성 스타일 지정
                     response_format="mp3"
                 )
 
@@ -863,7 +907,7 @@ class TTSGenerator:
                 response.stream_to_file(str(mp3_file))
 
                 # 성공 후 짧은 대기 (Rate limit 방지)
-                time.sleep(0.5)
+                time.sleep(0.3)
                 return True
 
             except Exception as e:
@@ -912,7 +956,179 @@ class TTSGenerator:
         for voice_name in self.OPENAI_VOICES.keys():
             if voice_name in voice_setting_lower:
                 return voice_name
-        return "onyx"  # 기본값
+        return "ash"  # 기본값
+
+    # ========================================================================
+    # [DEPRECATED] 기존 generate() - 문장별 TTS 방식
+    # ========================================================================
+    # 이유: 문장별로 TTS를 호출하면 문장 사이가 부자연스럽게 끊기고,
+    #       자막이 2줄로 나오는 문제가 있었음.
+    # 개선: 씬 전체를 한 번에 TTS → Whisper로 문장별 timestamp 추출
+    # ========================================================================
+    # def generate_old(
+    #     self,
+    #     scene_id: str,
+    #     text: str,
+    #     voice: Optional[str] = None
+    # ) -> Optional[Dict[str, Any]]:
+    #     """OpenAI TTS - 문장별 음성 생성 (DEPRECATED)"""
+    #
+    #     if not self.openai_client:
+    #         print("❌ OpenAI 클라이언트를 초기화할 수 없습니다.")
+    #         print("   .env 파일에 OPENAI_API_KEY를 설정하세요.")
+    #         return None
+    #
+    #     project_dir = OUTPUT_DIR / self.state.get("project_id", "unknown")
+    #     audio_dir = project_dir / "0_audio"
+    #     audio_dir.mkdir(parents=True, exist_ok=True)
+    #
+    #     # 음성 설정 (기본값: ash)
+    #     voice_setting = voice or self.state.get("settings.voice", "ash")
+    #     voice_name = self._extract_voice_name(voice_setting)
+    #
+    #     print(f"\n🎤 [{scene_id}] TTS 생성 중... (OpenAI)")
+    #     print(f"   음성: {voice_name}")
+    #
+    #     # 텍스트를 문장 단위로 분할
+    #     sentences = self._split_into_sentences(text)
+    #     print(f"   문장 수: {len(sentences)}개")
+    #
+    #     sentence_results = []
+    #     total_duration = 0.0
+    #     audio_files = []
+    #
+    #     for idx, sentence in enumerate(sentences, 1):
+    #         sentence_id = f"{scene_id}_{idx}"
+    #         audio_file = audio_dir / f"{sentence_id}.mp3"
+    #
+    #         # 문장 미리보기 (너무 길면 자름)
+    #         preview = sentence[:40] + "..." if len(sentence) > 40 else sentence
+    #         print(f"      [{idx}/{len(sentences)}] {preview}")
+    #
+    #         # OpenAI TTS 생성
+    #         success = self._generate_openai_tts(sentence, voice_name, audio_file)
+    #
+    #         if success:
+    #             duration = self._get_mp3_duration(audio_file)
+    #             gap = 0.1  # 문장 사이 여유 시간
+    #             sentence_results.append({
+    #                 "sentence_id": sentence_id,
+    #                 "sentence_index": idx,
+    #                 "text": sentence,
+    #                 "audio_file": str(audio_file),
+    #                 "start": total_duration,
+    #                 "end": total_duration + duration + gap,
+    #                 "duration": duration + gap
+    #             })
+    #             audio_files.append(str(audio_file))
+    #             total_duration += duration + gap
+    #             print(f"         ✅ {duration:.2f}초 (+{gap}s gap)")
+    #         else:
+    #             print(f"         ❌ 실패")
+    #
+    #     if not sentence_results:
+    #         return None
+    #
+    #     # 타이밍 JSON 저장
+    #     timing_file = audio_dir / f"{scene_id}_timing.json"
+    #     timing_data = {
+    #         "scene_id": scene_id,
+    #         "voice": voice_name,
+    #         "total_duration": total_duration,
+    #         "sentence_count": len(sentence_results),
+    #         "sentences": sentence_results,
+    #         "audio_files": audio_files,
+    #         "created_at": datetime.now().isoformat()
+    #     }
+    #
+    #     with open(timing_file, 'w', encoding='utf-8') as f:
+    #         json.dump(timing_data, f, ensure_ascii=False, indent=2)
+    #
+    #     print(f"   ✅ 완료: {len(sentence_results)}개 문장, 총 {total_duration:.2f}초")
+    #
+    #     # state에 오디오 파일 추가
+    #     for af in audio_files:
+    #         self.state.add_file("audio", af)
+    #
+    #     return timing_data
+    # ========================================================================
+
+    def _transcribe_with_whisper(self, audio_file: Path, original_text: str) -> Optional[Dict[str, Any]]:
+        """Whisper API로 오디오 파일 분석하여 문장별 timestamp 추출
+
+        Args:
+            audio_file: 분석할 오디오 파일 경로
+            original_text: 원본 텍스트 (힌트용)
+
+        Returns:
+            {
+                "segments": [...],  # 문장별 시간 정보
+                "words": [...],     # 단어별 시간 정보 (있을 경우)
+                "full_text": "...", # 전사된 전체 텍스트
+                "duration": 10.5    # 총 길이
+            }
+        """
+        if not self.openai_client:
+            return None
+
+        try:
+            print(f"   📊 Whisper 타임스탬프 추출 중...")
+
+            # Whisper 프롬프트 (인식 정확도 향상용)
+            prompt = f"""[엄격 규칙]
+1. 음성에 들린 내용만 정확히 전사
+2. 인사말, 감사, 추임새, 감탄사 절대 추가 금지
+3. 타임스탬프는 실제 발화 시간 정확히 반영
+
+이것은 수학 교육 영상 나레이션입니다.
+수학 용어: 미분, 적분, 벡터, 내적, 제곱근, 함수, 그래프 등
+
+예상 내용: {original_text[:200]}"""
+
+            with open(audio_file, "rb") as f:
+                # verbose_json으로 segment별 timestamp 획득
+                response = self.openai_client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=f,
+                    language="ko",
+                    response_format="verbose_json",
+                    timestamp_granularities=["segment", "word"],
+                    prompt=prompt
+                )
+
+            result = {
+                "segments": [],
+                "words": [],
+                "full_text": response.text,
+                "duration": response.duration if hasattr(response, 'duration') else 0
+            }
+
+            # Segment 정보 추출 (문장 단위)
+            if hasattr(response, 'segments') and response.segments:
+                for seg in response.segments:
+                    result["segments"].append({
+                        "text": seg.text.strip() if hasattr(seg, 'text') else "",
+                        "start": seg.start if hasattr(seg, 'start') else 0,
+                        "end": seg.end if hasattr(seg, 'end') else 0,
+                        "duration": (seg.end - seg.start) if hasattr(seg, 'end') and hasattr(seg, 'start') else 0
+                    })
+
+            # Word 정보 추출 (단어 단위) - 있으면
+            if hasattr(response, 'words') and response.words:
+                for word in response.words:
+                    result["words"].append({
+                        "text": word.word.strip() if hasattr(word, 'word') else "",
+                        "start": word.start if hasattr(word, 'start') else 0,
+                        "end": word.end if hasattr(word, 'end') else 0
+                    })
+
+            print(f"      ✅ {len(result['segments'])}개 세그먼트, {len(result['words'])}개 단어 추출")
+
+            return result
+
+        except Exception as e:
+            print(f"      ❌ Whisper 분석 실패: {e}")
+            return None
 
     def generate(
         self,
@@ -920,7 +1136,13 @@ class TTSGenerator:
         text: str,
         voice: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
-        """OpenAI TTS - 문장별 음성 생성"""
+        """OpenAI TTS + Whisper - 씬 전체 음성 생성 후 문장별 timestamp 추출
+
+        개선점:
+        - 씬 전체를 한 번에 TTS → 자연스러운 음성
+        - Whisper로 문장별 timestamp 추출 → 정확한 자막 타이밍
+        - 파일 1개로 관리 용이
+        """
 
         if not self.openai_client:
             print("❌ OpenAI 클라이언트를 초기화할 수 없습니다.")
@@ -931,51 +1153,60 @@ class TTSGenerator:
         audio_dir = project_dir / "0_audio"
         audio_dir.mkdir(parents=True, exist_ok=True)
 
-        # 음성 설정 (기본값: onyx)
-        voice_setting = voice or self.state.get("settings.voice", "onyx")
+        # 음성 설정 (기본값: alloy)
+        voice_setting = voice or self.state.get("settings.voice", "alloy")
         voice_name = self._extract_voice_name(voice_setting)
 
-        print(f"\n🎤 [{scene_id}] TTS 생성 중... (OpenAI)")
+        print(f"\n🎤 [{scene_id}] TTS 생성 중... (OpenAI + Whisper)")
         print(f"   음성: {voice_name}")
 
-        # 텍스트를 문장 단위로 분할
-        sentences = self._split_into_sentences(text)
-        print(f"   문장 수: {len(sentences)}개")
+        # 텍스트 미리보기
+        preview = text[:60] + "..." if len(text) > 60 else text
+        print(f"   텍스트: {preview}")
 
-        sentence_results = []
-        total_duration = 0.0
-        audio_files = []
+        # 1. 씬 전체 텍스트로 TTS 생성 (파일 1개)
+        audio_file = audio_dir / f"{scene_id}.mp3"
+        print(f"   🔊 TTS 생성 중...")
 
-        for idx, sentence in enumerate(sentences, 1):
-            sentence_id = f"{scene_id}_{idx}"
-            audio_file = audio_dir / f"{sentence_id}.mp3"
+        success = self._generate_openai_tts(text, voice_name, audio_file)
 
-            # 문장 미리보기 (너무 길면 자름)
-            preview = sentence[:40] + "..." if len(sentence) > 40 else sentence
-            print(f"      [{idx}/{len(sentences)}] {preview}")
-
-            # OpenAI TTS 생성
-            success = self._generate_openai_tts(sentence, voice_name, audio_file)
-
-            if success:
-                duration = self._get_mp3_duration(audio_file)
-                sentence_results.append({
-                    "sentence_id": sentence_id,
-                    "sentence_index": idx,
-                    "text": sentence,
-                    "audio_file": str(audio_file),
-                    "start": total_duration,
-                    "end": total_duration + duration,
-                    "duration": duration
-                })
-                audio_files.append(str(audio_file))
-                total_duration += duration
-                print(f"         ✅ {duration:.2f}초")
-            else:
-                print(f"         ❌ 실패")
-
-        if not sentence_results:
+        if not success:
+            print(f"   ❌ TTS 생성 실패")
             return None
+
+        # 전체 duration 확인
+        total_duration = self._get_mp3_duration(audio_file)
+        print(f"   ✅ TTS 완료: {total_duration:.2f}초")
+
+        # 2. Whisper로 문장별 timestamp 추출
+        whisper_result = self._transcribe_with_whisper(audio_file, text)
+
+        if not whisper_result or not whisper_result.get("segments"):
+            # Whisper 실패 시 전체를 하나의 segment로 처리
+            print(f"   ⚠️ Whisper 분석 실패, 전체를 단일 세그먼트로 처리")
+            whisper_result = {
+                "segments": [{
+                    "text": text,
+                    "start": 0,
+                    "end": total_duration,
+                    "duration": total_duration
+                }],
+                "words": [],
+                "full_text": text,
+                "duration": total_duration
+            }
+
+        # 3. timing.json 형식으로 변환 (기존 형식 호환)
+        sentence_results = []
+        for idx, seg in enumerate(whisper_result["segments"], 1):
+            sentence_results.append({
+                "sentence_id": f"{scene_id}_{idx}",
+                "sentence_index": idx,
+                "text": seg["text"],
+                "start": seg["start"],
+                "end": seg["end"],
+                "duration": seg["duration"]
+            })
 
         # 타이밍 JSON 저장
         timing_file = audio_dir / f"{scene_id}_timing.json"
@@ -985,18 +1216,31 @@ class TTSGenerator:
             "total_duration": total_duration,
             "sentence_count": len(sentence_results),
             "sentences": sentence_results,
-            "audio_files": audio_files,
-            "created_at": datetime.now().isoformat()
+            "audio_files": [str(audio_file)],  # 이제 파일 1개
+            "words": whisper_result.get("words", []),  # 단어별 타이밍 (보너스)
+            "whisper_text": whisper_result.get("full_text", ""),  # Whisper 전사 결과
+            "created_at": datetime.now().isoformat(),
+            "method": "tts_whisper"  # 새 방식 표시
         }
 
         with open(timing_file, 'w', encoding='utf-8') as f:
             json.dump(timing_data, f, ensure_ascii=False, indent=2)
 
-        print(f"   ✅ 완료: {len(sentence_results)}개 문장, 총 {total_duration:.2f}초")
+        print(f"   ✅ 완료: {len(sentence_results)}개 세그먼트, 총 {total_duration:.2f}초")
+
+        # 전사 정확도 표시
+        if whisper_result.get("full_text"):
+            # 간단한 유사도 체크
+            original_clean = text.replace(" ", "").replace(",", "").replace(".", "")
+            whisper_clean = whisper_result["full_text"].replace(" ", "").replace(",", "").replace(".", "")
+            if original_clean and whisper_clean:
+                # 공통 글자 수 기반 유사도
+                common = sum(1 for c in whisper_clean if c in original_clean)
+                similarity = (common / max(len(original_clean), len(whisper_clean))) * 100
+                print(f"   📝 전사 유사도: {similarity:.1f}%")
 
         # state에 오디오 파일 추가
-        for af in audio_files:
-            self.state.add_file("audio", af)
+        self.state.add_file("audio", str(audio_file))
 
         return timing_data
     
@@ -1022,7 +1266,7 @@ class TTSGenerator:
         if isinstance(data, list):
             scenes = data
         else:
-            scenes = data.get("scenes", [])
+            scenes = data if isinstance(data, list) else data.get("scenes", [])
         if not scenes:
             print("❌ 씬이 없습니다.")
             return []
@@ -1098,6 +1342,150 @@ class TTSGenerator:
             self.state.update_tts_completed(project_id, all_audio_files)
 
         return results
+
+    def generate_for_scene(self, scene_id: str) -> Optional[Dict[str, Any]]:
+        """단일 씬의 TTS 재생성 (scenes.json에서 텍스트 자동 로드)"""
+        project_id = self.state.get("project_id", "unknown")
+        project_dir = OUTPUT_DIR / project_id
+        scenes_dir = project_dir / "2_scenes"
+
+        # 개별 씬 파일 먼저 확인
+        scene_file = scenes_dir / f"{scene_id}.json"
+        if scene_file.exists():
+            with open(scene_file, 'r', encoding='utf-8') as f:
+                scene_data = json.load(f)
+        else:
+            # scenes.json에서 찾기
+            scenes_file = scenes_dir / "scenes.json"
+            if not scenes_file.exists():
+                print(f"❌ 씬 파일이 없습니다: {scenes_file}")
+                return None
+
+            with open(scenes_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            scenes = data if isinstance(data, list) else data.get("scenes", [])
+            scene_data = None
+            for scene in scenes:
+                if scene.get("scene_id") == scene_id:
+                    scene_data = scene
+                    break
+
+            if not scene_data:
+                print(f"❌ 씬을 찾을 수 없습니다: {scene_id}")
+                return None
+
+        text = scene_data.get("narration_tts") or scene_data.get("narration_display", "")
+        if not text:
+            print(f"❌ {scene_id}: 나레이션 텍스트가 없습니다.")
+            return None
+
+        print(f"\n🎤 {scene_id} TTS 재생성 시작...")
+        result = self.generate(scene_id, text)
+
+        if result:
+            print(f"✅ {scene_id} TTS 생성 완료: {result.get('total_duration', 0):.1f}초")
+
+        return result
+
+    def verify_sync(self, scene_id: Optional[str] = None) -> dict:
+        """대본(scenes.json)과 TTS 녹음(timing.json) 동기화 검증
+
+        Args:
+            scene_id: 특정 씬만 검증 (None이면 전체 검증)
+
+        Returns:
+            {"ok": [...], "mismatch": [...], "missing_scene": [...], "missing_timing": [...]}
+        """
+        project_id = self.state.get("project_id", "unknown")
+        project_dir = OUTPUT_DIR / project_id
+        scenes_dir = project_dir / "2_scenes"
+        audio_dir = project_dir / "0_audio"
+
+        result = {"ok": [], "mismatch": [], "missing_scene": [], "missing_timing": []}
+
+        def normalize(text: str) -> str:
+            """비교를 위한 텍스트 정규화 (구두점/공백 제거)"""
+            return text.replace(',', '').replace('.', '').replace('...', '').replace(' ', '').replace('?', '').replace('!', '')[:40]
+
+        def check_scene(sid: str):
+            scene_file = scenes_dir / f"{sid}.json"
+            timing_file = audio_dir / f"{sid}_timing.json"
+
+            if not scene_file.exists():
+                result["missing_scene"].append(sid)
+                return
+            if not timing_file.exists():
+                result["missing_timing"].append(sid)
+                return
+
+            with open(scene_file, 'r', encoding='utf-8') as f:
+                scene_data = json.load(f)
+            with open(timing_file, 'r', encoding='utf-8') as f:
+                timing_data = json.load(f)
+
+            scene_tts = scene_data.get('narration_tts', '').strip()
+            whisper_text = timing_data.get('whisper_text', '').strip()
+
+            if normalize(scene_tts) == normalize(whisper_text):
+                result["ok"].append(sid)
+            else:
+                result["mismatch"].append({
+                    "scene_id": sid,
+                    "script": scene_tts[:60] + "..." if len(scene_tts) > 60 else scene_tts,
+                    "recorded": whisper_text[:60] + "..." if len(whisper_text) > 60 else whisper_text
+                })
+
+        if scene_id:
+            # 단일 씬 검증
+            check_scene(scene_id)
+        else:
+            # 전체 검증 - scenes 폴더의 모든 s*.json
+            import re
+            scene_files = sorted(scenes_dir.glob("s*.json"),
+                                key=lambda p: (int(re.match(r's(\d+)', p.stem).group(1)) if re.match(r's(\d+)', p.stem) else 0, p.stem))
+            for sf in scene_files:
+                sid = sf.stem
+                if re.match(r's\d+[a-z]?$', sid):  # s1, s2, s32a 등
+                    check_scene(sid)
+
+        # 결과 출력
+        print("\n" + "="*60)
+        print("📋 대본-TTS 동기화 검증 결과")
+        print("="*60)
+
+        if result["ok"]:
+            print(f"\n✅ 일치: {len(result['ok'])}개")
+            if len(result["ok"]) <= 10:
+                print(f"   {', '.join(result['ok'])}")
+
+        if result["mismatch"]:
+            print(f"\n❌ 불일치: {len(result['mismatch'])}개")
+            for m in result["mismatch"][:5]:  # 처음 5개만 상세 출력
+                print(f"\n   [{m['scene_id']}]")
+                print(f"   대본: {m['script']}")
+                print(f"   녹음: {m['recorded']}")
+            if len(result["mismatch"]) > 5:
+                mismatch_ids = [m["scene_id"] for m in result["mismatch"][5:]]
+                print(f"\n   ... 외 {len(mismatch_ids)}개: {', '.join(mismatch_ids)}")
+
+            # TTS 재생성 안내
+            first_mismatch = result["mismatch"][0]["scene_id"]
+            scene_num = int(first_mismatch[1:]) if first_mismatch[1:].isdigit() else 1
+            print(f"\n   💡 해결: python math_video_pipeline.py tts-all --start-from {scene_num}")
+
+        if result["missing_scene"]:
+            print(f"\n⚠️ 씬 파일 없음: {', '.join(result['missing_scene'])}")
+
+        if result["missing_timing"]:
+            print(f"\n⚠️ 타이밍 파일 없음: {', '.join(result['missing_timing'])}")
+
+        if not result["mismatch"] and not result["missing_scene"] and not result["missing_timing"]:
+            print("\n🎉 모든 씬이 동기화되어 있습니다!")
+
+        print("\n" + "="*60)
+
+        return result
 
     def export_texts(self) -> Optional[Path]:
         """외부 녹음용 텍스트 JSON 내보내기
@@ -1326,21 +1714,22 @@ class TTSGenerator:
 
                 # duration 측정
                 duration = self._get_audio_duration(audio_file)
+                gap = 0.1  # 문장 사이 여유 시간
 
                 sentence_results.append({
                     "index": sent["index"],
                     "text": sent["text"],
                     "file": f"{key}.{file_ext}",
                     "start": round(current_time, 3),
-                    "end": round(current_time + duration, 3),
-                    "duration": round(duration, 3)
+                    "end": round(current_time + duration + gap, 3),
+                    "duration": round(duration + gap, 3)
                 })
 
                 audio_files.append(f"{key}.{file_ext}")
                 all_audio_files.append(f"{key}.{file_ext}")
-                current_time += duration
+                current_time += duration + gap
 
-                print(f"   {key}: {duration:.2f}초")
+                print(f"   {key}: {duration:.2f}초 (+{gap}s gap)")
 
             # timing.json 저장
             timing_file = audio_dir / f"{scene_id}_timing.json"
@@ -1627,6 +2016,630 @@ class FileManager:
 
 
 # ============================================================================
+# Supabase 클라이언트
+# ============================================================================
+
+def get_supabase_client() -> Optional['SupabaseClient']:
+    """Supabase 클라이언트 생성 (Service Role Key 사용)"""
+    if not SUPABASE_AVAILABLE:
+        return None
+
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_SERVICE_KEY")
+
+    if not url or not key:
+        # .env 파일에서 로드 시도
+        env_file = Path(".env")
+        if env_file.exists():
+            with open(env_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("SUPABASE_URL="):
+                        url = line.split("=", 1)[1].strip().strip('"\'')
+                    elif line.startswith("SUPABASE_SERVICE_KEY="):
+                        key = line.split("=", 1)[1].strip().strip('"\'')
+
+    if not url or not key:
+        print("❌ SUPABASE_URL 또는 SUPABASE_SERVICE_KEY가 설정되지 않았습니다.")
+        return None
+
+    return create_client(url, key)
+
+
+# ============================================================================
+# 에셋 관리 클래스 (Supabase 연동)
+# ============================================================================
+
+class AssetManager:
+    """에셋 관리 (Supabase Storage + DB 연동)"""
+
+    BUCKET_NAME = "math-video-assets"
+    ASSETS_DIR = Path("assets")
+
+    def __init__(self, state_manager: StateManager):
+        self.state = state_manager
+        self.supabase = get_supabase_client()
+
+    def get_project_dir(self) -> Optional[Path]:
+        """현재 프로젝트 디렉토리"""
+        project_id = self.state.get("project_id")
+        if project_id:
+            return OUTPUT_DIR / project_id
+        return None
+
+    def check_assets(self) -> dict:
+        """
+        에셋 체크: Supabase 조회 + 다운로드 + 누락 목록 생성 + scenes.json 확장자 업데이트
+
+        Returns:
+            {"available": [...], "missing": [...], "downloaded": [...]}
+        """
+        project_dir = self.get_project_dir()
+        if not project_dir:
+            print("❌ 활성 프로젝트가 없습니다.")
+            return {"available": [], "missing": [], "downloaded": []}
+
+        scenes_file = project_dir / "2_scenes" / "scenes.json"
+        if not scenes_file.exists():
+            print("❌ 씬 파일이 없습니다. 먼저 씬 분할을 진행하세요.")
+            return {"available": [], "missing": [], "downloaded": []}
+
+        # 1. scenes.json에서 required_elements 수집
+        with open(scenes_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        scenes = data if isinstance(data, list) else data.get("scenes", [])
+
+        required_assets = {}  # file_path -> {scenes, description, tags, original_name}
+        for scene in scenes:
+            scene_id = scene.get("scene_id", "unknown")
+
+            # 1. required_elements에서 추출
+            elements = scene.get("required_elements", [])
+            for elem in elements:
+                if isinstance(elem, str) and "/" in elem:
+                    # 이미 경로 형식
+                    base_name = elem.rsplit(".", 1)[0] if "." in elem else elem
+                    if base_name not in required_assets:
+                        required_assets[base_name] = {"scenes": [], "description": "", "tags": [], "original_name": elem}
+                    required_assets[base_name]["scenes"].append(scene_id)
+                elif isinstance(elem, dict) and elem.get("type") == "image":
+                    # {"type": "image", "asset": "snack_bag" 또는 "snack_bag.png", "role": "..."} 형식
+                    asset_name = elem.get("asset", elem.get("file", elem.get("path", "")))
+                    if asset_name:
+                        # 확장자 제거
+                        base_name = asset_name.rsplit(".", 1)[0] if "." in asset_name else asset_name
+
+                        # 카테고리 추측 (파일명에서)
+                        if "stickman" in base_name or "pigou" in base_name:
+                            file_path = f"characters/{base_name}"
+                        elif "_icon" in base_name or base_name in ["question_mark", "exclamation", "lightbulb", "checkmark", "arrow_right", "star", "heart", "clock", "calendar", "battery_low", "server_icon", "algorithm_icon", "amazon_logo", "dollar_sign"]:
+                            file_path = f"icons/{base_name}"
+                        else:
+                            file_path = f"objects/{base_name}"
+
+                        if file_path not in required_assets:
+                            required_assets[file_path] = {
+                                "scenes": [],
+                                "description": elem.get("role", elem.get("description", "")),
+                                "tags": [],
+                                "original_name": asset_name
+                            }
+                        required_assets[file_path]["scenes"].append(scene_id)
+
+            # 2. required_assets에서도 추출 (별도 필드)
+            assets_list = scene.get("required_assets", [])
+            for asset in assets_list:
+                if isinstance(asset, dict):
+                    category = asset.get("category", "objects")
+                    filename = asset.get("filename", "")
+                    if filename:
+                        # 확장자 제거
+                        base_name = filename.rsplit(".", 1)[0] if "." in filename else filename
+                        file_path = f"{category}/{base_name}"
+                        if file_path not in required_assets:
+                            required_assets[file_path] = {
+                                "scenes": [],
+                                "description": asset.get("description", ""),
+                                "tags": [category, base_name],
+                                "original_name": filename
+                            }
+                        if scene_id not in required_assets[file_path]["scenes"]:
+                            required_assets[file_path]["scenes"].append(scene_id)
+
+        print(f"\n📋 필요한 에셋: {len(required_assets)}개")
+
+        # 2. 실제 파일 확장자 찾기 (로컬에서 .png 또는 .svg 탐색)
+        resolved_assets = {}  # base_path -> actual_path (with extension)
+        for base_path in required_assets.keys():
+            # 로컬에서 .png, .svg 순서로 찾기
+            for ext in [".png", ".svg"]:
+                local_path = self.ASSETS_DIR / f"{base_path}{ext}"
+                if local_path.exists():
+                    resolved_assets[base_path] = f"{base_path}{ext}"
+                    break
+            # 없으면 일단 .png로 가정 (누락 목록에 추가됨)
+            if base_path not in resolved_assets:
+                resolved_assets[base_path] = f"{base_path}.png"
+
+        if not self.supabase:
+            print("❌ Supabase 연결 실패. 로컬 파일만 확인합니다.")
+            result = self._check_local_only(required_assets, resolved_assets)
+            # scenes.json 업데이트
+            self._update_scenes_with_extensions(scenes_file, scenes, resolved_assets)
+            return result
+
+        # 3. Supabase에서 보유 목록 조회
+        try:
+            result = self.supabase.table("assets").select("file_path, folder, file_name, description, tags").execute()
+            supabase_assets = {item["file_path"]: item for item in result.data}
+            print(f"☁️  Supabase 보유: {len(supabase_assets)}개")
+
+            # Supabase에서도 확장자 찾기
+            for base_path in required_assets.keys():
+                if base_path not in resolved_assets or not (self.ASSETS_DIR / resolved_assets[base_path]).exists():
+                    for ext in [".png", ".svg"]:
+                        full_path = f"{base_path}{ext}"
+                        if full_path in supabase_assets:
+                            resolved_assets[base_path] = full_path
+                            break
+        except Exception as e:
+            print(f"⚠️  Supabase 조회 오류: {e}")
+            supabase_assets = {}
+
+        available = []
+        missing = []
+        downloaded = []
+
+        # 4. 각 에셋 확인 (확장자 포함된 경로로)
+        for base_path, info in required_assets.items():
+            file_path = resolved_assets.get(base_path, f"{base_path}.png")
+            local_path = self.ASSETS_DIR / file_path
+
+            if file_path in supabase_assets:
+                # Supabase에 있음
+                if local_path.exists():
+                    # 로컬에도 있음
+                    available.append(file_path)
+                else:
+                    # 로컬에 없음 → 다운로드
+                    if self._download_asset(file_path):
+                        downloaded.append(file_path)
+                        available.append(file_path)
+                    else:
+                        missing.append({
+                            "file_path": file_path,
+                            "base_path": base_path,
+                            "folder": file_path.rsplit("/", 1)[0] if "/" in file_path else "",
+                            "file_name": file_path.rsplit("/", 1)[-1],
+                            "description": supabase_assets[file_path].get("description", ""),
+                            "tags": supabase_assets[file_path].get("tags", []),
+                            "used_in_scenes": info["scenes"],
+                            "spec": {"min_size": "500x500", "format": "PNG or SVG", "background": "transparent"}
+                        })
+            else:
+                # Supabase에 없음
+                if local_path.exists():
+                    # 로컬에만 있음 (업로드 필요)
+                    available.append(file_path)
+                else:
+                    # 어디에도 없음
+                    missing.append({
+                        "file_path": file_path,
+                        "base_path": base_path,
+                        "folder": file_path.rsplit("/", 1)[0] if "/" in file_path else "",
+                        "file_name": file_path.rsplit("/", 1)[-1],
+                        "description": info.get("description", f"에셋: {file_path}"),
+                        "tags": info.get("tags", [file_path.split("/")[0], base_path.rsplit("/", 1)[-1]]),
+                        "used_in_scenes": info["scenes"],
+                        "spec": {"min_size": "500x500", "format": "PNG or SVG", "background": "transparent"}
+                    })
+
+        # 5. 결과 출력
+        print(f"\n✅ 사용 가능: {len(available)}개")
+        if downloaded:
+            print(f"⬇️  다운로드됨: {len(downloaded)}개")
+            for fp in downloaded:
+                print(f"   - {fp}")
+
+        if missing:
+            print(f"❌ 누락: {len(missing)}개")
+            for m in missing:
+                print(f"   - {m['file_path']} (씬: {', '.join(m['used_in_scenes'])})")
+
+            # missing_assets.json 저장
+            missing_file = project_dir / "missing_assets.json"
+            with open(missing_file, 'w', encoding='utf-8') as f:
+                json.dump({
+                    "missing": missing,
+                    "generated_at": datetime.now().isoformat()
+                }, f, ensure_ascii=False, indent=2)
+            print(f"\n📄 누락 목록 저장: {missing_file}")
+        else:
+            print("\n🎉 모든 에셋 준비 완료!")
+            # state.json 업데이트
+            self.state.set("assets.required", [resolved_assets[k] for k in required_assets.keys()])
+            self.state.set("assets.available", available)
+            self.state.set("assets.missing", [])
+            self.state.update_phase("assets_checked")
+
+        # 6. scenes.json 업데이트 (확장자 반영)
+        self._update_scenes_with_extensions(scenes_file, scenes, resolved_assets)
+
+        return {"available": available, "missing": missing, "downloaded": downloaded}
+
+    def _update_scenes_with_extensions(self, scenes_file: Path, scenes: list, resolved_assets: dict) -> bool:
+        """scenes.json에 실제 파일 확장자를 반영"""
+        updated = False
+
+        for scene in scenes:
+            # 1. required_elements 업데이트
+            elements = scene.get("required_elements", [])
+            for elem in elements:
+                if isinstance(elem, dict) and elem.get("type") == "image":
+                    asset_name = elem.get("asset", "")
+                    if asset_name:
+                        base_name = asset_name.rsplit(".", 1)[0] if "." in asset_name else asset_name
+
+                        # 카테고리 추측
+                        if "stickman" in base_name or "pigou" in base_name:
+                            base_path = f"characters/{base_name}"
+                        elif "_icon" in base_name or base_name in ["question_mark", "exclamation", "lightbulb", "checkmark", "arrow_right", "star", "heart", "clock", "calendar", "battery_low", "server_icon", "algorithm_icon", "amazon_logo", "dollar_sign"]:
+                            base_path = f"icons/{base_name}"
+                        else:
+                            base_path = f"objects/{base_name}"
+
+                        if base_path in resolved_assets:
+                            new_name = resolved_assets[base_path].rsplit("/", 1)[-1]  # 파일명만
+                            if asset_name != new_name:
+                                elem["asset"] = new_name
+                                updated = True
+
+            # 2. required_assets 업데이트
+            assets_list = scene.get("required_assets", [])
+            for asset in assets_list:
+                if isinstance(asset, dict):
+                    category = asset.get("category", "objects")
+                    filename = asset.get("filename", "")
+                    if filename:
+                        base_name = filename.rsplit(".", 1)[0] if "." in filename else filename
+                        base_path = f"{category}/{base_name}"
+
+                        if base_path in resolved_assets:
+                            new_filename = resolved_assets[base_path].rsplit("/", 1)[-1]
+                            if filename != new_filename:
+                                asset["filename"] = new_filename
+                                updated = True
+
+        if updated:
+            with open(scenes_file, 'w', encoding='utf-8') as f:
+                json.dump(scenes, f, ensure_ascii=False, indent=2)
+            print(f"\n📝 scenes.json 업데이트됨 (확장자 반영)")
+
+        return updated
+
+    def _check_local_only(self, required_assets: dict, resolved_assets: dict) -> dict:
+        """로컬 파일만 확인 (Supabase 없을 때)
+
+        Args:
+            required_assets: 필요한 에셋 (확장자 없는 경로 -> info)
+            resolved_assets: 실제 파일 경로 (확장자 없는 경로 -> 확장자 있는 경로)
+        """
+        available = []
+        missing = []
+
+        for base_path, info in required_assets.items():
+            # resolved_assets에서 실제 파일 경로 확인
+            if base_path in resolved_assets:
+                actual_path = resolved_assets[base_path]
+                available.append(actual_path)
+            else:
+                # 누락된 에셋
+                category = base_path.rsplit("/", 1)[0] if "/" in base_path else ""
+                is_icon = category == "icons"
+                missing.append({
+                    "file_path": base_path,  # 확장자 없는 경로
+                    "folder": category,
+                    "file_name": base_path.rsplit("/", 1)[-1],
+                    "description": info.get("description", f"에셋: {base_path}"),
+                    "tags": info.get("tags", []),
+                    "used_in_scenes": info["scenes"],
+                    "spec": {
+                        "min_size": "300x300" if is_icon else "500x500",
+                        "format": "SVG (권장) 또는 PNG" if is_icon else "PNG",
+                        "background": "transparent"
+                    }
+                })
+
+        print(f"✅ 로컬 존재: {len(available)}개")
+        print(f"❌ 누락: {len(missing)}개")
+
+        return {"available": available, "missing": missing, "downloaded": []}
+
+    def _download_asset(self, file_path: str) -> bool:
+        """Supabase Storage에서 에셋 다운로드"""
+        try:
+            local_path = self.ASSETS_DIR / file_path
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+
+            data = self.supabase.storage.from_(self.BUCKET_NAME).download(file_path)
+
+            with open(local_path, 'wb') as f:
+                f.write(data)
+
+            return True
+        except Exception as e:
+            print(f"   ⚠️  다운로드 실패 ({file_path}): {e}")
+            return False
+
+    def sync_assets(self) -> dict:
+        """
+        에셋 동기화: 로컬 신규 파일 → Supabase 업로드
+        missing_assets.json 참조하여 메타데이터 적용
+
+        Returns:
+            {"uploaded": [...], "failed": [...]}
+        """
+        project_dir = self.get_project_dir()
+        if not project_dir:
+            print("❌ 활성 프로젝트가 없습니다.")
+            return {"uploaded": [], "failed": []}
+
+        if not self.supabase:
+            print("❌ Supabase 연결 실패.")
+            return {"uploaded": [], "failed": []}
+
+        # missing_assets.json 로드
+        missing_file = project_dir / "missing_assets.json"
+        missing_metadata = {}
+        if missing_file.exists():
+            with open(missing_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                for item in data.get("missing", []):
+                    missing_metadata[item["file_path"]] = item
+
+        # Supabase 보유 목록 조회
+        try:
+            result = self.supabase.table("assets").select("file_path").execute()
+            supabase_paths = {item["file_path"] for item in result.data}
+        except Exception as e:
+            print(f"⚠️  Supabase 조회 오류: {e}")
+            supabase_paths = set()
+
+        uploaded = []
+        failed = []
+
+        # 로컬 assets 폴더 스캔 (PNG + SVG)
+        asset_files = list(self.ASSETS_DIR.rglob("*.png")) + list(self.ASSETS_DIR.rglob("*.svg"))
+
+        for asset_file in asset_files:
+            rel_path = asset_file.relative_to(self.ASSETS_DIR).as_posix()
+
+            if rel_path in supabase_paths:
+                continue  # 이미 업로드됨
+
+            print(f"\n📤 업로드 중: {rel_path}")
+
+            # 메타데이터 준비
+            metadata = missing_metadata.get(rel_path, {})
+            folder = rel_path.rsplit("/", 1)[0] if "/" in rel_path else ""
+            file_name = rel_path.rsplit("/", 1)[-1]
+
+            if self._upload_asset(asset_file, rel_path, folder, file_name, metadata):
+                uploaded.append(rel_path)
+            else:
+                failed.append(rel_path)
+
+        print(f"\n{'='*50}")
+        print(f"✅ 업로드 완료: {len(uploaded)}개")
+        if failed:
+            print(f"❌ 실패: {len(failed)}개")
+            for fp in failed:
+                print(f"   - {fp}")
+
+        # 업로드 후 다시 체크
+        if uploaded:
+            print("\n🔄 에셋 상태 재확인 중...")
+            self.check_assets()
+
+        # 카탈로그 업데이트
+        self.update_catalog()
+
+        return {"uploaded": uploaded, "failed": failed}
+
+    def update_catalog(self) -> bool:
+        """
+        Supabase에서 전체 에셋 목록을 가져와서 asset-catalog.md 자동 생성
+        """
+        if not self.supabase:
+            print("⚠️  Supabase 연결 없음. 카탈로그 업데이트 생략.")
+            return False
+
+        try:
+            result = self.supabase.table("assets").select("*").execute()
+            assets = result.data
+        except Exception as e:
+            print(f"⚠️  Supabase 조회 오류: {e}")
+            return False
+
+        if not assets:
+            print("⚠️  Supabase에 에셋이 없습니다.")
+            return False
+
+        # 카테고리별 분류
+        categories = {
+            "characters": [],
+            "objects": [],
+            "icons": [],
+            "metaphors": []
+        }
+
+        for asset in assets:
+            folder = asset.get("folder", "objects")
+            if folder not in categories:
+                folder = "objects"
+            categories[folder].append(asset)
+
+        # Markdown 생성
+        catalog_path = Path("skills/asset-catalog.md")
+
+        lines = [
+            "# 에셋 카탈로그",
+            "",
+            "> 이 파일은 `asset-sync` 실행 시 Supabase에서 자동 생성됩니다.",
+            "> 수동으로 수정하지 마세요.",
+            "",
+            f"**마지막 업데이트**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"**총 에셋 수**: {len(assets)}개",
+            "",
+            "---",
+            "",
+        ]
+
+        # 카테고리별 테이블 생성
+        category_info = {
+            "characters": ("캐릭터", "characters/"),
+            "objects": ("물체", "objects/"),
+            "icons": ("아이콘", "icons/"),
+            "metaphors": ("은유/비유", "metaphors/")
+        }
+
+        for cat_key, (cat_name, cat_path) in category_info.items():
+            cat_assets = categories.get(cat_key, [])
+            if not cat_assets:
+                continue
+
+            lines.append(f"## {cat_name} ({cat_path})")
+            lines.append("")
+            lines.append("| 파일명 | 설명 | 크기 | 태그 |")
+            lines.append("|--------|------|------|------|")
+
+            for asset in sorted(cat_assets, key=lambda x: x.get("file_name", "")):
+                file_name = asset.get("file_name", "unknown")
+                description = asset.get("description", "")[:50]  # 50자 제한
+                width = asset.get("width", "?")
+                height = asset.get("height", "?")
+                size_str = f"{width}x{height}" if width and height else "?"
+                tags = asset.get("tags", [])
+                # tags가 중첩 리스트일 경우 flatten
+                if tags and isinstance(tags[0], list):
+                    tags = [item for sublist in tags for item in sublist]
+                # 문자열만 필터링
+                tags = [t for t in tags if isinstance(t, str)]
+                tags_str = ", ".join(tags[:3]) if tags else ""  # 태그 3개까지
+
+                lines.append(f"| `{file_name}` | {description} | {size_str} | {tags_str} |")
+
+            lines.append("")
+
+        # 파일 사양 섹션
+        lines.extend([
+            "---",
+            "",
+            "## 에셋 파일 사양",
+            "",
+            "| 카테고리 | 권장 크기 | 스타일 |",
+            "|----------|-----------|--------|",
+            "| characters | 500x700 px | 졸라맨 stick figure |",
+            "| objects | 500x500 px | minimalist 2D |",
+            "| icons | 300x300 px | minimalist 2D |",
+            "| metaphors | 700x500 px | minimalist 2D |",
+            "",
+            "**공통 사양**:",
+            "- 포맷: PNG (투명 배경)",
+            "- 생성 시 흰색 배경으로 생성 후 배경 제거",
+            "- 내부는 반드시 solid color로 채우기",
+            "",
+        ])
+
+        # 파일 저장
+        catalog_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(catalog_path, 'w', encoding='utf-8') as f:
+            f.write("\n".join(lines))
+
+        print(f"\n📋 카탈로그 업데이트: {catalog_path}")
+        print(f"   - 총 {len(assets)}개 에셋 등록")
+
+        return True
+
+    def _upload_asset(self, local_path: Path, storage_path: str, folder: str, file_name: str, metadata: dict) -> bool:
+        """단일 에셋 업로드 (Storage + DB)"""
+        try:
+            # 파일 확장자 확인
+            is_svg = file_name.lower().endswith(".svg")
+            content_type = "image/svg+xml" if is_svg else "image/png"
+
+            # 1. Storage 업로드
+            with open(local_path, 'rb') as f:
+                file_data = f.read()
+
+            try:
+                self.supabase.storage.from_(self.BUCKET_NAME).upload(
+                    path=storage_path,
+                    file=file_data,
+                    file_options={"content-type": content_type}
+                )
+                print(f"   [STORAGE] OK")
+            except Exception as e:
+                if "Duplicate" in str(e) or "already exists" in str(e):
+                    print(f"   [STORAGE] Already exists")
+                else:
+                    raise e
+
+            # 2. 이미지 정보
+            width, height, file_size = None, None, local_path.stat().st_size
+
+            if is_svg:
+                # SVG 파일은 viewBox에서 크기 추출 시도
+                try:
+                    import re
+                    svg_content = local_path.read_text(encoding='utf-8')
+                    # viewBox="0 0 300 300" 또는 width="300" height="300" 추출
+                    viewbox_match = re.search(r'viewBox="[^"]*\s+(\d+)\s+(\d+)"', svg_content)
+                    if viewbox_match:
+                        width, height = int(viewbox_match.group(1)), int(viewbox_match.group(2))
+                    else:
+                        width_match = re.search(r'width="(\d+)"', svg_content)
+                        height_match = re.search(r'height="(\d+)"', svg_content)
+                        if width_match and height_match:
+                            width, height = int(width_match.group(1)), int(height_match.group(1))
+                except:
+                    pass
+            elif PIL_AVAILABLE:
+                try:
+                    with Image.open(local_path) as img:
+                        width, height = img.size
+                except:
+                    pass
+
+            # 3. DB 저장
+            # 확장자 제거 (태그용)
+            base_name = file_name.rsplit(".", 1)[0] if "." in file_name else file_name
+
+            db_data = {
+                "file_name": file_name,
+                "folder": folder,
+                "storage_path": storage_path,
+                "description": metadata.get("description", f"{folder} asset: {file_name}"),
+                "tags": metadata.get("tags", [folder, base_name]),
+                "width": width,
+                "height": height,
+                "file_size": file_size,
+            }
+
+            self.supabase.table("assets").upsert(
+                db_data,
+                on_conflict="folder,file_name"
+            ).execute()
+            print(f"   [DB] OK")
+
+            return True
+        except Exception as e:
+            print(f"   [ERROR] {e}")
+            return False
+
+
+# ============================================================================
 # 이미지 관리 클래스
 # ============================================================================
 
@@ -1661,7 +2674,7 @@ class ImageManager:
         with open(scenes_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
-        scenes = data.get("scenes", [])
+        scenes = data if isinstance(data, list) else data.get("scenes", [])
         if not scenes:
             print("❌ 씬이 없습니다.")
             return None
@@ -1775,8 +2788,6 @@ class ImageManager:
 {config['accent']},
 mathematical education video background,
 no text, no letters, no numbers, no Korean, no equations,
-center area bright and clean for overlay,
-edges darker with subtle accents,
 suitable for {config['equation_color']} mathematical equations overlay,
 {ratio_text} ratio,
 high contrast, professional education aesthetic,
@@ -1804,7 +2815,7 @@ Negative prompt: text, letters, numbers, words, Korean, Chinese, Japanese, equat
         with open(scenes_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
-        scenes = data.get("scenes", [])
+        scenes = data if isinstance(data, list) else data.get("scenes", [])
         scene_ids = [s.get("scene_id", f"s{i+1}") for i, s in enumerate(scenes)]
         
         # 이미지 확인
@@ -1885,7 +2896,7 @@ Negative prompt: text, letters, numbers, words, Korean, Chinese, Japanese, equat
         with open(scenes_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
-        scenes = data.get("scenes", [])
+        scenes = data if isinstance(data, list) else data.get("scenes", [])
         scene_ids = [s.get("scene_id", f"s{i+1}") for i, s in enumerate(scenes)]
         
         # 소스 폴더의 이미지 파일들
@@ -1980,11 +2991,12 @@ class RenderManager:
         
         # Manim 명령어 구성
         cmd = ["manim"]
-        
+
         if preview:
             cmd.append("-p")
-        
+
         cmd.append(f"-q{quality}")
+        cmd.append("--transparent")  # 투명 배경 (배경 이미지 합성용)
         cmd.append(str(code_file))
         cmd.append(class_name)
         
@@ -2047,14 +3059,107 @@ class RenderManager:
         print("\n" + "="*60)
         success_count = sum(1 for v in results.values() if v)
         print(f"✅ 렌더링 완료: {success_count}/{len(results)}개 성공")
-        
-        # 모두 성공하면 완료 상태로 업데이트
-        if success_count == len(results):
-            renders_dir = project_dir / "8_renders"
-            self.state.update_completed(str(renders_dir))
-        
+
+        # 렌더링 성공한 것이 있으면 결과물 자동 수집
+        if success_count > 0:
+            print("\n📦 렌더링 결과물 자동 수집 중...")
+            self.collect_renders()
+
         return results
-    
+
+    def collect_renders(self) -> Dict[str, str]:
+        """media/videos/ 폴더에서 렌더링 결과물을 수집하여 8_renders/로 복사"""
+
+        project_dir = OUTPUT_DIR / self.state.get("project_id", "unknown")
+        renders_dir = project_dir / "8_renders"
+        renders_dir.mkdir(parents=True, exist_ok=True)
+
+        # Manim 기본 출력 폴더
+        media_dir = Path("media/videos")
+
+        if not media_dir.exists():
+            print(f"❌ media/videos 폴더가 없습니다.")
+            return {}
+
+        # 프로젝트의 씬 ID 목록 가져오기
+        scenes = self.state.get("scenes", {})
+        completed_scenes = scenes.get("completed", [])
+
+        if not completed_scenes:
+            # 코드 파일에서 씬 ID 추출
+            code_dir = project_dir / "4_manim_code"
+            if code_dir.exists():
+                code_files = list(code_dir.glob("*_manim.py"))
+                completed_scenes = [f.stem.replace("_manim", "") for f in code_files]
+
+        print(f"\n📦 렌더링 결과물 수집")
+        print(f"   소스: {media_dir}")
+        print(f"   대상: {renders_dir}")
+        print(f"   씬 개수: {len(completed_scenes)}")
+        print("="*60)
+
+        collected = {}
+        missing = []
+
+        for scene_id in completed_scenes:
+            # 씬별 폴더 찾기 (예: s1_manim, s2_manim 등)
+            scene_folder_pattern = f"{scene_id}_manim"
+            scene_folders = list(media_dir.glob(scene_folder_pattern))
+
+            if not scene_folders:
+                missing.append(scene_id)
+                continue
+
+            scene_folder = scene_folders[0]
+
+            # 품질 폴더 찾기 (480p15, 720p30, 1080p60 등)
+            quality_folders = [d for d in scene_folder.iterdir() if d.is_dir()]
+
+            if not quality_folders:
+                missing.append(scene_id)
+                continue
+
+            # 가장 최근 폴더 사용 (보통 하나뿐)
+            quality_folder = sorted(quality_folders, key=lambda x: x.stat().st_mtime, reverse=True)[0]
+
+            # 비디오 파일 찾기 (.mov 또는 .mp4)
+            video_files = list(quality_folder.glob("*.mov")) + list(quality_folder.glob("*.mp4"))
+
+            if not video_files:
+                missing.append(scene_id)
+                continue
+
+            # 가장 최근 파일 사용
+            source_file = sorted(video_files, key=lambda x: x.stat().st_mtime, reverse=True)[0]
+
+            # 대상 파일명 (scene_id.확장자)
+            dest_file = renders_dir / f"{scene_id}{source_file.suffix}"
+
+            # 복사
+            import shutil
+            shutil.copy2(source_file, dest_file)
+
+            collected[scene_id] = str(dest_file)
+            print(f"   ✅ {scene_id}: {source_file.name} → {dest_file.name}")
+
+        print("\n" + "="*60)
+        print(f"✅ 수집 완료: {len(collected)}개")
+
+        if missing:
+            print(f"⚠️  누락: {len(missing)}개 - {', '.join(missing)}")
+
+        # state.json 업데이트
+        if collected:
+            state_data = self.state.load()
+            state_data.setdefault("files", {})["renders"] = list(collected.values())
+            state_data["current_phase"] = "rendered"
+            self.state.save()
+            print(f"\n📝 state.json 업데이트 완료")
+            print(f"   current_phase: rendered")
+            print(f"   files.renders: {len(collected)}개 파일")
+
+        return collected
+
     def generate_render_script(self) -> Optional[Path]:
         """렌더링 스크립트 생성"""
         
@@ -2128,8 +3233,748 @@ class RenderManager:
         print(f"✅ 렌더링 스크립트 생성")
         print(f"   Bash: {script_file}")
         print(f"   Windows: {bat_file}")
-        
+
         return script_file
+
+
+# ============================================================================
+# 씬 분할 저장 (토큰 절약)
+# ============================================================================
+
+class SceneSplitter:
+    """scenes.json을 개별 씬 파일로 분할"""
+
+    def __init__(self, state: StateManager):
+        self.state = state
+
+    def split(self):
+        """scenes.json을 개별 파일로 분할"""
+        project_id = self.state.get("project_id")
+        if not project_id:
+            print("❌ 활성 프로젝트가 없습니다.")
+            return
+
+        scenes_path = Path(f"output/{project_id}/2_scenes/scenes.json")
+        if not scenes_path.exists():
+            print(f"❌ scenes.json이 없습니다: {scenes_path}")
+            return
+
+        # scenes.json 읽기
+        with open(scenes_path, "r", encoding="utf-8") as f:
+            scenes = json.load(f)
+
+        if not scenes:
+            print("❌ scenes.json이 비어있습니다.")
+            return
+
+        # 개별 파일로 저장
+        output_dir = scenes_path.parent
+        saved_count = 0
+
+        for scene in scenes:
+            scene_id = scene.get("scene_id", "unknown")
+            scene_file = output_dir / f"{scene_id}.json"
+
+            with open(scene_file, "w", encoding="utf-8") as f:
+                json.dump(scene, f, ensure_ascii=False, indent=2)
+
+            saved_count += 1
+
+        print(f"✅ {saved_count}개 씬을 개별 파일로 분할했습니다.")
+        print(f"   위치: {output_dir}/")
+        print(f"   예: {output_dir}/s1.json, s2.json, ...")
+        print(f"\n💡 이제 Claude가 필요한 씬만 읽어 토큰을 절약합니다.")
+
+
+# ============================================================================
+# 영상 합성 및 자막 관리
+# ============================================================================
+
+class ComposerManager:
+    """영상 합성 및 자막 생성 관리"""
+
+    def __init__(self, state: StateManager):
+        self.state = state
+        self.ffmpeg_path = self._find_ffmpeg()
+        self.ffprobe_path = self._find_ffprobe()
+
+    def _find_ffmpeg(self) -> str:
+        """FFmpeg 경로 찾기"""
+        import shutil
+
+        # 시스템 PATH에서 찾기
+        ffmpeg = shutil.which("ffmpeg")
+        if ffmpeg:
+            return ffmpeg
+
+        # Windows 일반적인 경로들
+        common_paths = [
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft/WinGet/Links/ffmpeg.exe",
+            Path("C:/ffmpeg/bin/ffmpeg.exe"),
+            Path("C:/Program Files/ffmpeg/bin/ffmpeg.exe"),
+        ]
+
+        for path in common_paths:
+            if path.exists():
+                return str(path)
+
+        return "ffmpeg"  # PATH에 있다고 가정
+
+    def _find_ffprobe(self) -> str:
+        """FFprobe 경로 찾기"""
+        import shutil
+
+        ffprobe = shutil.which("ffprobe")
+        if ffprobe:
+            return ffprobe
+
+        # FFmpeg와 같은 폴더에서 찾기
+        ffmpeg_dir = Path(self.ffmpeg_path).parent
+        ffprobe_path = ffmpeg_dir / "ffprobe.exe"
+        if ffprobe_path.exists():
+            return str(ffprobe_path)
+
+        return "ffprobe"
+
+    def _get_duration(self, file_path: Path) -> Optional[float]:
+        """오디오/비디오 파일 길이 확인 (ffprobe 사용)"""
+        try:
+            result = subprocess.run([
+                self.ffprobe_path, "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "csv=p=0", str(file_path)
+            ], capture_output=True, text=True)
+            if result.returncode == 0 and result.stdout.strip():
+                return float(result.stdout.strip())
+        except Exception as e:
+            print(f"  ⚠️ 길이 확인 실패: {e}")
+        return None
+
+    def _get_project_paths(self) -> Dict[str, Path]:
+        """프로젝트 경로들 반환"""
+        project_id = self.state.get("project_id")
+        if not project_id:
+            return {}
+
+        base = Path("output") / project_id
+        return {
+            "base": base,
+            "audio": base / "0_audio",
+            "scenes": base / "2_scenes",
+            "subtitles": base / "7_subtitles",
+            "renders": base / "8_renders",
+            "backgrounds": base / "9_backgrounds",
+            "final": base / "10_scene_final",
+        }
+
+    def _format_srt_time(self, seconds: float) -> str:
+        """초를 SRT 시간 형식으로 변환: HH:MM:SS,mmm"""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        millis = int((seconds % 1) * 1000)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+    def generate_subtitles(self) -> bool:
+        """모든 씬의 SRT 자막 생성 (문장 단위)
+
+        텍스트 소스: scenes.json의 narration_display (Whisper 인식 결과가 아님!)
+        타이밍 소스: timing.json의 sentences 배열 (Whisper segments)
+
+        방식:
+        1. narration_display를 .?! 기준으로 문장 분리 → 텍스트
+        2. timing.json의 sentences 배열에서 타이밍 추출 → start/end
+        3. 문장 수 일치하면 1:1 매핑, 불일치하면 균등 분배
+        """
+        paths = self._get_project_paths()
+        if not paths:
+            print("❌ 활성 프로젝트가 없습니다.")
+            return False
+
+        audio_path = paths["audio"]
+        subtitle_path = paths["subtitles"]
+        scenes_path = paths["scenes"]
+
+        # 자막 폴더 생성
+        subtitle_path.mkdir(parents=True, exist_ok=True)
+
+        # scenes.json에서 narration_display 로드 (원본 텍스트)
+        scene_texts = {}
+        for scene_file in scenes_path.glob("s*.json"):
+            try:
+                with open(scene_file, 'r', encoding='utf-8') as f:
+                    scene_data = json.load(f)
+                    scene_id = scene_data.get('scene_id', scene_file.stem)
+                    # narration_display 사용 (화면 자막용 텍스트)
+                    scene_texts[scene_id] = scene_data.get('narration_display', '')
+            except Exception as e:
+                print(f"  ⚠️ {scene_file.name} 로드 실패: {e}")
+
+        # timing 파일 찾기 (s32a 같은 ID도 지원)
+        def scene_sort_key(path):
+            scene_id = path.stem.split("_")[0][1:]  # "s32a" -> "32a"
+            import re
+            match = re.match(r'(\d+)([a-z]*)', scene_id)
+            if match:
+                return (int(match.group(1)), match.group(2))
+            return (0, scene_id)
+
+        timing_files = sorted(audio_path.glob("*_timing.json"), key=scene_sort_key)
+
+        if not timing_files:
+            print("❌ timing.json 파일을 찾을 수 없습니다.")
+            print("   먼저 TTS 생성 또는 audio-process를 실행하세요.")
+            return False
+
+        generated = []
+
+        for timing_file in timing_files:
+            scene_id = timing_file.stem.replace("_timing", "")
+
+            with open(timing_file, 'r', encoding='utf-8') as f:
+                timing_data = json.load(f)
+
+            # 원본 텍스트 가져오기 (Whisper 결과가 아닌 narration_display 사용!)
+            original_text = scene_texts.get(scene_id, '')
+            if not original_text:
+                print(f"  ⚠️ {scene_id}: narration_display 없음, Whisper 텍스트 사용")
+                original_text = timing_data.get('whisper_text', '')
+
+            total_duration = timing_data.get('total_duration', 0)
+            timing_sentences = timing_data.get('sentences', [])
+
+            # narration_display를 문장 분리 (.?! 기준)
+            display_sentences = self._split_sentences(original_text)
+
+            if not display_sentences or total_duration <= 0:
+                # SRT 파일 저장 (빈 파일)
+                srt_file = subtitle_path / f"{scene_id}.srt"
+                with open(srt_file, 'w', encoding='utf-8') as f:
+                    f.write("")
+                generated.append(scene_id)
+                continue
+
+            # 타이밍 계산: sentences 배열 타이밍 + narration_display 텍스트
+            sentence_timings = self._calculate_sentence_timings_from_segments(
+                display_sentences, timing_sentences, total_duration
+            )
+
+            # SRT 생성 - 문장 단위
+            srt_lines = []
+            for idx, (sentence, start, end) in enumerate(sentence_timings, 1):
+                start_time = self._format_srt_time(start)
+                end_time = self._format_srt_time(end)
+
+                srt_lines.append(str(idx))
+                srt_lines.append(f"{start_time} --> {end_time}")
+                srt_lines.append(sentence)
+                srt_lines.append("")
+
+            # SRT 파일 저장
+            srt_file = subtitle_path / f"{scene_id}.srt"
+            with open(srt_file, 'w', encoding='utf-8') as f:
+                f.write("\n".join(srt_lines))
+
+            generated.append(scene_id)
+            print(f"  ✅ {scene_id}.srt: {len(display_sentences)}문장")
+
+        print(f"\n✅ 자막 생성 완료: {len(generated)}개 파일")
+        print(f"   위치: {subtitle_path}")
+        print(f"   ℹ️  텍스트: narration_display, 타이밍: Whisper segments")
+
+        return True
+
+    def generate_subtitle_for_scene(self, scene_id: str) -> bool:
+        """단일 씬의 SRT 자막 생성"""
+        paths = self._get_project_paths()
+        if not paths:
+            print("❌ 활성 프로젝트가 없습니다.")
+            return False
+
+        audio_path = paths["audio"]
+        subtitle_path = paths["subtitles"]
+        scenes_path = paths["scenes"]
+
+        subtitle_path.mkdir(parents=True, exist_ok=True)
+
+        # 씬 파일에서 narration_display 로드
+        scene_file = scenes_path / f"{scene_id}.json"
+        if not scene_file.exists():
+            print(f"❌ 씬 파일을 찾을 수 없습니다: {scene_file}")
+            return False
+
+        with open(scene_file, 'r', encoding='utf-8') as f:
+            scene_data = json.load(f)
+        original_text = scene_data.get('narration_display', '')
+
+        # timing 파일 로드
+        timing_file = audio_path / f"{scene_id}_timing.json"
+        if not timing_file.exists():
+            print(f"❌ 타이밍 파일을 찾을 수 없습니다: {timing_file}")
+            return False
+
+        with open(timing_file, 'r', encoding='utf-8') as f:
+            timing_data = json.load(f)
+
+        total_duration = timing_data.get('total_duration', 0)
+        timing_sentences = timing_data.get('sentences', [])
+
+        # 문장 분리 및 타이밍 계산
+        display_sentences = self._split_sentences(original_text)
+
+        if not display_sentences or total_duration <= 0:
+            srt_file = subtitle_path / f"{scene_id}.srt"
+            with open(srt_file, 'w', encoding='utf-8') as f:
+                f.write("")
+            print(f"  ⚠️ {scene_id}: 빈 자막 생성")
+            return True
+
+        sentence_timings = self._calculate_sentence_timings_from_segments(
+            display_sentences, timing_sentences, total_duration
+        )
+
+        # SRT 생성
+        srt_lines = []
+        for idx, (sentence, start, end) in enumerate(sentence_timings, 1):
+            start_time = self._format_srt_time(start)
+            end_time = self._format_srt_time(end)
+            srt_lines.append(str(idx))
+            srt_lines.append(f"{start_time} --> {end_time}")
+            srt_lines.append(sentence)
+            srt_lines.append("")
+
+        srt_file = subtitle_path / f"{scene_id}.srt"
+        with open(srt_file, 'w', encoding='utf-8') as f:
+            f.write("\n".join(srt_lines))
+
+        print(f"✅ {scene_id}.srt 생성 완료: {len(display_sentences)}문장")
+        return True
+
+    def _split_sentences(self, text: str) -> List[str]:
+        """텍스트를 문장 단위로 분리 (. ? ! , 기준)"""
+        if not text:
+            return []
+
+        # . ? ! , 뒤에 공백이 오는 경우 분리
+        import re
+        sentences = re.split(r'(?<=[.?!,])\s+', text.strip())
+
+        # 빈 문장 제거 및 정리
+        sentences = [s.strip() for s in sentences if s.strip()]
+
+        return sentences
+
+    def _calculate_sentence_timings_from_segments(
+        self,
+        display_sentences: List[str],
+        timing_sentences: List[dict],
+        total_duration: float
+    ) -> List[tuple]:
+        """문장별 타이밍 계산 (균등 분배 방식)
+
+        ============================================================
+        [자막 타이밍 계산 로직] - 균등 분배
+        ============================================================
+
+        Whisper의 한계:
+        - segments: 발화 단위(pause 기준)이지 문장 단위(.?!)가 아님
+        - words: 텍스트 오인식 많음 ("탄력성" → "팔력성")
+
+        따라서 균등 분배 사용:
+        - 텍스트: narration_display에서 .?! 기준 분리 (정확함)
+        - 타이밍: total_duration / 문장수 (근사치)
+
+        예시 (s16, 14.35초, 5문장):
+        - 문장1: 0.00 ~ 2.87초
+        - 문장2: 2.87 ~ 5.74초
+        - 문장3: 5.74 ~ 8.61초
+        - 문장4: 8.61 ~ 11.48초
+        - 문장5: 11.48 ~ 14.35초
+        ============================================================
+
+        Args:
+            display_sentences: narration_display에서 분리한 문장들 (텍스트용)
+            timing_sentences: timing.json의 sentences 배열 (현재 미사용)
+            total_duration: 전체 오디오 길이
+
+        Returns:
+            List of (sentence_text, start_time, end_time)
+        """
+        n_display = len(display_sentences)
+
+        # ============================================================
+        # 균등 분배: total_duration / 문장수
+        # ============================================================
+        duration_per_sentence = total_duration / n_display
+        result = []
+        for i, sentence in enumerate(display_sentences):
+            start = i * duration_per_sentence
+            end = (i + 1) * duration_per_sentence
+            # 마지막 문장은 정확히 total_duration까지
+            if i == n_display - 1:
+                end = total_duration
+            result.append((sentence, start, end))
+        return result
+
+    def _merge_audio(self, scene_id: str) -> Optional[Path]:
+        """씬의 오디오 파일 반환 (새 방식: 단일 파일 / 구 방식: 병합)"""
+        paths = self._get_project_paths()
+        audio_path = paths["audio"]
+
+        # 1. 새 방식: 단일 파일 (s1.mp3) 확인
+        single_file = audio_path / f"{scene_id}.mp3"
+        if single_file.exists():
+            return single_file
+
+        # 2. 구 방식: 문장별 파일들 (s1_1.mp3, s1_2.mp3, ...) 병합
+        audio_files = sorted(
+            audio_path.glob(f"{scene_id}_*.mp3"),
+            key=lambda x: int(x.stem.split("_")[1]) if "_" in x.stem and x.stem.split("_")[1].isdigit() else 0
+        )
+
+        # timing.json, concat.txt 등 제외
+        audio_files = [f for f in audio_files if not any(x in f.stem for x in ["timing", "concat", "merged"])]
+
+        if not audio_files:
+            print(f"  ⚠️  {scene_id}: 오디오 파일 없음")
+            return None
+
+        # 파일이 1개면 바로 반환
+        if len(audio_files) == 1:
+            return audio_files[0]
+
+        merged_file = audio_path / f"{scene_id}_merged.mp3"
+
+        # 이미 병합된 파일이 있고 최신이면 재사용
+        if merged_file.exists():
+            merged_time = merged_file.stat().st_mtime
+            if all(f.stat().st_mtime < merged_time for f in audio_files):
+                return merged_file
+
+        # concat 파일 생성
+        concat_file = audio_path / f"{scene_id}_concat.txt"
+        with open(concat_file, 'w', encoding='utf-8') as f:
+            for audio in audio_files:
+                f.write(f"file '{audio.name}'\n")
+
+        # FFmpeg로 병합
+        cmd = [
+            self.ffmpeg_path,
+            "-f", "concat",
+            "-safe", "0",
+            "-i", str(concat_file),
+            "-c", "copy",
+            "-y", str(merged_file)
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            print(f"  ❌ {scene_id}: 오디오 병합 실패")
+            return None
+
+        return merged_file
+
+    def _find_manim_render(self, scene_id: str) -> Optional[Path]:
+        """Manim 렌더링 결과 찾기"""
+        # media/videos/{scene_id}_manim 폴더에서 찾기
+        media_path = Path("media/videos") / f"{scene_id}_manim"
+
+        if media_path.exists():
+            # 품질별 폴더 확인 (높은 품질 우선)
+            for quality in ["1080p60", "1080p30", "720p30", "480p15"]:
+                quality_path = media_path / quality
+                if quality_path.exists():
+                    # Scene*.mov 또는 Scene*.mp4 찾기
+                    for ext in ["mov", "mp4"]:
+                        scene_files = list(quality_path.glob(f"Scene*.{ext}"))
+                        if scene_files:
+                            return scene_files[0]
+
+        # 8_renders 폴더에서도 찾기
+        paths = self._get_project_paths()
+        renders_path = paths.get("renders")
+        if renders_path and renders_path.exists():
+            for ext in ["mov", "mp4"]:
+                render_files = list(renders_path.glob(f"{scene_id}*.{ext}"))
+                if render_files:
+                    return render_files[0]
+
+        return None
+
+    def _find_background(self, scene_id: str) -> Optional[Path]:
+        """배경 이미지 찾기"""
+        paths = self._get_project_paths()
+        bg_path = paths.get("backgrounds")
+
+        if not bg_path or not bg_path.exists():
+            return None
+
+        for ext in ["png", "jpg", "jpeg", "webp"]:
+            bg_file = bg_path / f"{scene_id}_bg.{ext}"
+            if bg_file.exists():
+                return bg_file
+
+        return None
+
+    def compose_scene(self, scene_id: str, with_subtitle: bool = True) -> Optional[Path]:
+        """단일 씬 합성 (배경 + Manim + 오디오 + 자막)"""
+        paths = self._get_project_paths()
+        if not paths:
+            print("❌ 활성 프로젝트가 없습니다.")
+            return None
+
+        print(f"\n🎬 {scene_id} 합성 시작...")
+
+        # 출력 폴더 생성
+        final_path = paths["final"]
+        final_path.mkdir(parents=True, exist_ok=True)
+
+        # 필요한 파일들 찾기
+        manim_file = self._find_manim_render(scene_id)
+        bg_file = self._find_background(scene_id)
+        audio_file = self._merge_audio(scene_id)
+        subtitle_file = paths["subtitles"] / f"{scene_id}.srt" if with_subtitle else None
+
+        # 파일 체크
+        if not manim_file:
+            print(f"  ❌ Manim 렌더링 파일 없음")
+            return None
+
+        if not audio_file:
+            print(f"  ❌ 오디오 파일 없음")
+            return None
+
+        # 오디오 길이 확인 (오디오 기준으로 영상 길이 결정)
+        audio_duration = self._get_duration(audio_file)
+        if not audio_duration:
+            print(f"  ⚠️ 오디오 길이 확인 불가, 기본값 사용")
+            audio_duration = 30.0
+
+        print(f"  📹 Manim: {manim_file.name}")
+        print(f"  🎵 Audio: {audio_file.name} ({audio_duration:.2f}초)")
+        if bg_file:
+            print(f"  🖼️  Background: {bg_file.name}")
+        if subtitle_file and subtitle_file.exists():
+            print(f"  📝 Subtitle: {subtitle_file.name}")
+
+        # 출력 파일 경로
+        output_file = final_path / f"{scene_id}_final.mp4"
+
+        # 자막 필터 준비 (문장 단위, 화면 맨 아래 배치)
+        # MarginV=15: 화면 아래 여유
+        # MarginL/R=20: 좌우 여백
+        # FontSize=20: 가독성 확보
+        subtitle_filter_part = ""
+        if with_subtitle and subtitle_file and subtitle_file.exists():
+            srt_path = str(subtitle_file).replace("\\", "/").replace(":", "\\:")
+            subtitle_filter_part = (
+                f",subtitles='{srt_path}':"
+                f"force_style='FontName=Malgun Gothic,FontSize=20,"
+                f"PrimaryColour=&HFFFFFF,OutlineColour=&H000000,"
+                f"Outline=2,Shadow=1,MarginV=15,MarginL=20,MarginR=20'"
+            )
+
+        # FFmpeg 합성 명령 구성 (배경 + Manim + 오디오 + 자막 한 번에)
+        # eof_action=repeat: Manim 영상 끝나면 마지막 프레임 유지
+        if bg_file:
+            # 배경 + Manim 오버레이 + 자막
+            # subtitles 필터는 overlay 후 별도 체인으로 적용
+            if with_subtitle and subtitle_file and subtitle_file.exists():
+                srt_path_fc = str(subtitle_file).replace("\\", "/").replace(":", "\\:")
+                filter_complex = (
+                    f"[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,"
+                    f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2[bg];"
+                    f"[1:v]scale=1920:1080:force_original_aspect_ratio=decrease,format=rgba[fg];"
+                    f"[bg][fg]overlay=(W-w)/2:(H-h)/2:eof_action=repeat[ov];"
+                    f"[ov]subtitles='{srt_path_fc}':"
+                    f"force_style='FontName=Malgun Gothic,FontSize=20,"
+                    f"PrimaryColour=&HFFFFFF,OutlineColour=&H000000,"
+                    f"Outline=2,Shadow=1,MarginV=15,MarginL=20,MarginR=20'[outv]"
+                )
+            else:
+                filter_complex = (
+                    f"[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,"
+                    f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2[bg];"
+                    f"[1:v]scale=1920:1080:force_original_aspect_ratio=decrease,format=rgba[fg];"
+                    f"[bg][fg]overlay=(W-w)/2:(H-h)/2:eof_action=repeat[outv]"
+                )
+
+            cmd = [
+                self.ffmpeg_path,
+                "-loop", "1", "-i", str(bg_file),
+                "-i", str(manim_file),
+                "-i", str(audio_file),
+                "-filter_complex", filter_complex,
+                "-map", "[outv]", "-map", "2:a",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-b:a", "192k",
+                "-t", str(audio_duration),
+                "-y", str(output_file)
+            ]
+        else:
+            # Manim만 사용 (배경 없음) + 자막
+            # tpad: Manim 끝나면 마지막 프레임 유지
+            video_filter = f"scale=1920:1080,tpad=stop_mode=clone:stop_duration={audio_duration}{subtitle_filter_part}"
+            cmd = [
+                self.ffmpeg_path,
+                "-i", str(manim_file),
+                "-i", str(audio_file),
+                "-vf", video_filter,
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-b:a", "192k",
+                "-t", str(audio_duration),
+                "-y", str(output_file)
+            ]
+
+        # 합성 실행
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            print(f"  ❌ 합성 실패: {result.stderr[:200]}")
+            return None
+
+        if with_subtitle and subtitle_file and subtitle_file.exists():
+            print(f"  ✅ 자막 포함 합성 완료")
+
+        print(f"  ✅ 합성 완료: {output_file.name}")
+        return output_file
+
+    def compose_all(self, with_subtitle: bool = True) -> List[Path]:
+        """모든 씬 합성"""
+        paths = self._get_project_paths()
+        if not paths:
+            print("❌ 활성 프로젝트가 없습니다.")
+            return []
+
+        # scenes.json에서 씬 목록 가져오기
+        scenes_file = paths["scenes"] / "scenes.json"
+        if not scenes_file.exists():
+            print("❌ scenes.json 파일이 없습니다.")
+            return []
+
+        with open(scenes_file, 'r', encoding='utf-8') as f:
+            scenes = json.load(f)
+
+        scene_ids = [s["scene_id"] for s in scenes]
+
+        print(f"\n🎬 전체 씬 합성 시작 ({len(scene_ids)}개)")
+        print("=" * 50)
+
+        composed = []
+        failed = []
+
+        for i, scene_id in enumerate(scene_ids, 1):
+            print(f"\n[{i}/{len(scene_ids)}] {scene_id}")
+
+            result = self.compose_scene(scene_id, with_subtitle=with_subtitle)
+
+            if result:
+                composed.append(result)
+            else:
+                failed.append(scene_id)
+
+        print("\n" + "=" * 50)
+        print(f"✅ 합성 완료: {len(composed)}개")
+        if failed:
+            print(f"❌ 실패: {len(failed)}개 ({', '.join(failed)})")
+
+        return composed
+
+    def merge_final(self) -> Optional[Path]:
+        """모든 씬을 하나의 최종 영상으로 병합"""
+        paths = self._get_project_paths()
+        if not paths:
+            print("❌ 활성 프로젝트가 없습니다.")
+            return None
+
+        final_path = paths["final"]
+
+        # 합성된 씬 파일 찾기 (자막 포함 버전 우선)
+        scene_files = []
+
+        # scenes.json에서 순서 가져오기
+        scenes_file = paths["scenes"] / "scenes.json"
+        if scenes_file.exists():
+            with open(scenes_file, 'r', encoding='utf-8') as f:
+                scenes = json.load(f)
+            scene_ids = [s["scene_id"] for s in scenes]
+        else:
+            # 파일명에서 추출
+            all_files = list(final_path.glob("*_final*.mp4"))
+            scene_ids = sorted(set(f.stem.split("_")[0] for f in all_files),
+                             key=lambda x: int(x[1:]) if x[1:].isdigit() else 0)
+
+        for scene_id in scene_ids:
+            scene_file = final_path / f"{scene_id}_final.mp4"
+            if scene_file.exists():
+                scene_files.append(scene_file)
+
+        if not scene_files:
+            print("❌ 합성된 씬 파일이 없습니다.")
+            print("   먼저 compose-all을 실행하세요.")
+            return None
+
+        print(f"\n🎬 최종 영상 병합 ({len(scene_files)}개 씬)")
+
+        # concat 파일 생성
+        concat_file = final_path / "final_concat.txt"
+        with open(concat_file, 'w', encoding='utf-8') as f:
+            for video in scene_files:
+                f.write(f"file '{video.name}'\n")
+
+        # 출력 파일
+        output_file = paths["base"] / "final_video.mp4"
+
+        # FFmpeg 병합
+        cmd = [
+            self.ffmpeg_path,
+            "-f", "concat",
+            "-safe", "0",
+            "-i", str(concat_file),
+            "-c", "copy",
+            "-y", str(output_file)
+        ]
+
+        print("  병합 중...")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            print(f"  ❌ 병합 실패: {result.stderr[:200]}")
+            return None
+
+        # 파일 정보 출력
+        probe_cmd = [
+            self.ffprobe_path,
+            "-v", "error",
+            "-show_entries", "format=duration,size",
+            "-of", "json",
+            str(output_file)
+        ]
+
+        probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+
+        if probe_result.returncode == 0:
+            info = json.loads(probe_result.stdout)
+            duration = float(info.get("format", {}).get("duration", 0))
+            size = int(info.get("format", {}).get("size", 0))
+
+            mins = int(duration // 60)
+            secs = int(duration % 60)
+            size_mb = size / (1024 * 1024)
+
+            print(f"\n✅ 최종 영상 생성 완료!")
+            print(f"   📁 파일: {output_file}")
+            print(f"   ⏱️  길이: {mins}분 {secs}초")
+            print(f"   💾 크기: {size_mb:.1f} MB")
+        else:
+            print(f"\n✅ 최종 영상 생성 완료: {output_file}")
+
+        # state.json 업데이트
+        self.state.update("current_phase", "completed")
+        self.state.update("files.final_video", str(output_file))
+
+        return output_file
 
 
 # ============================================================================
@@ -2217,8 +4062,8 @@ def print_help():
     """도움말 출력"""
     help_text = """
 ╔══════════════════════════════════════════════════════════════════╗
-║        수학 교육 영상 제작 파이프라인 v6.3                        ║
-║        Claude Code 통합 버전 (OpenAI TTS)                        ║
+║        수학 교육 영상 제작 파이프라인 v6.4                        ║
+║        Claude Code 통합 버전 (gpt-4o-mini-tts)                   ║
 ╚══════════════════════════════════════════════════════════════════╝
 
 📌 사용법:
@@ -2259,7 +4104,24 @@ def print_help():
   render-all    모든 씬 렌더링
                 --quality l        품질 (l/m/h/k)
 
+  render-collect 렌더링 결과물 수집
+                media/videos/에서 8_renders/로 파일 복사
+                state.json에 files.renders 업데이트
+
   render-script 렌더링 스크립트 생성
+
+  subtitle-generate  모든 씬 SRT 자막 생성
+                     → 7_subtitles/ 폴더에 s1.srt, s2.srt, ... 생성
+
+  compose       단일 씬 합성 (배경+Manim+오디오+자막)
+                --scene s1         씬 ID (필수)
+                --no-subtitle      자막 없이 합성
+
+  compose-all   모든 씬 합성
+                --no-subtitle      자막 없이 합성
+
+  merge-final   모든 씬을 최종 영상으로 병합
+                → final_video.mp4 생성
 
   convert       텍스트를 TTS용으로 변환
                 --text "9×9=81"    변환할 텍스트
@@ -2268,14 +4130,17 @@ def print_help():
 
   help          이 도움말 표시
 
-🎤 TTS 음성 옵션 (OpenAI TTS):
-  alloy      중성적, 균형잡힌
+🎤 TTS 음성 옵션 (gpt-4o-mini-tts):
+  ash        차분한 남성 [기본값] ⭐
+  onyx       남성적, 깊은 목소리
   echo       남성적, 차분함
-  fable      영국식 억양
-  onyx       남성적, 깊은 목소리 [기본값]
+  alloy      중성적, 균형잡힌
+  coral      따뜻한 여성
   nova       여성적, 밝고 친근
-  shimmer    여성적, 부드러움
+  marin      고품질 추천
+  cedar      고품질 추천
 
+  💡 한국어 발음 개선 + 저렴한 비용 (~$0.015/분)
   🎧 음성 샘플: https://platform.openai.com/docs/guides/text-to-speech
 
 📖 예시:
@@ -2306,6 +4171,15 @@ def print_help():
 
   # 9. 렌더링
   python math_video_pipeline.py render-all
+
+  # 10. 자막 생성
+  python math_video_pipeline.py subtitle-generate
+
+  # 11. 모든 씬 합성 (배경+Manim+오디오+자막)
+  python math_video_pipeline.py compose-all
+
+  # 12. 최종 영상 병합
+  python math_video_pipeline.py merge-final
 
 📁 출력 구조:
   output/{project_id}/
@@ -2363,12 +4237,16 @@ def main():
     init_parser.add_argument("--aspect", default="16:9",
                             choices=["16:9", "9:16"],
                             help="종횡비")
-    init_parser.add_argument("--voice", default="onyx",
-                            choices=["alloy", "echo", "fable", "onyx", "nova", "shimmer"],
-                            help="TTS 음성 (OpenAI)")
+    init_parser.add_argument("--voice", default="alloy",
+                            choices=["ash", "alloy", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse", "marin", "cedar"],
+                            help="TTS 음성 (OpenAI gpt-4o-mini-tts)")
     
     # status 명령어
     subparsers.add_parser("status", help="현재 상태 확인")
+
+    # verify-sync 명령어 (대본-TTS 동기화 검증)
+    verify_sync_parser = subparsers.add_parser("verify-sync", help="대본(scenes.json)과 TTS 녹음 동기화 검증")
+    verify_sync_parser.add_argument("scene_id", nargs="?", help="씬 ID (예: s7). 생략하면 전체 검증")
     
     # tts 명령어
     tts_parser = subparsers.add_parser("tts", help="단일 씬 TTS 생성")
@@ -2390,6 +4268,15 @@ def main():
     # audio-process 명령어 (외부 녹음 파일 처리)
     subparsers.add_parser("audio-process", help="외부 녹음 파일 Whisper 분석 + timing.json 생성")
 
+    # asset-check 명령어 (Supabase 에셋 체크)
+    subparsers.add_parser("asset-check", help="에셋 체크 (Supabase 조회 + 다운로드 + 누락 목록)")
+
+    # asset-sync 명령어 (로컬 → Supabase 업로드)
+    subparsers.add_parser("asset-sync", help="에셋 동기화 (로컬 신규 파일 → Supabase 업로드)")
+
+    # catalog-update 명령어 (Supabase → asset-catalog.md)
+    subparsers.add_parser("catalog-update", help="에셋 카탈로그 업데이트 (Supabase에서 목록 가져오기)")
+
     # render 명령어
     render_parser = subparsers.add_parser("render", help="단일 씬 렌더링")
     render_parser.add_argument("--scene", "-s", required=True, help="씬 ID")
@@ -2407,7 +4294,10 @@ def main():
     
     # render-script 명령어
     subparsers.add_parser("render-script", help="렌더링 스크립트 생성")
-    
+
+    # render-collect 명령어
+    subparsers.add_parser("render-collect", help="media/videos/에서 렌더링 결과물 수집하여 8_renders/로 복사")
+
     # prompts-export 명령어
     subparsers.add_parser("prompts-export", help="모든 이미지 프롬프트를 하나의 파일로 내보내기")
     
@@ -2424,10 +4314,46 @@ def main():
     
     # files 명령어
     subparsers.add_parser("files", help="프로젝트 파일 목록")
-    
+
     # help 명령어
     subparsers.add_parser("help", help="도움말 표시")
-    
+
+    # subtitle-generate 명령어
+    subparsers.add_parser("subtitle-generate", help="모든 씬 SRT 자막 생성")
+
+    # subtitle-scene 명령어 (개별 씬 자막 생성)
+    subtitle_scene_parser = subparsers.add_parser("subtitle-scene", help="단일 씬 SRT 자막 생성")
+    subtitle_scene_parser.add_argument("scene_id", help="씬 ID (예: s7)")
+
+    # tts-scene 명령어 (개별 씬 TTS 재생성 - scenes.json에서 텍스트 자동 로드)
+    tts_scene_parser = subparsers.add_parser("tts-scene", help="단일 씬 TTS 재생성 (scenes.json에서 텍스트 로드)")
+    tts_scene_parser.add_argument("scene_id", help="씬 ID (예: s7)")
+
+    # render-scene 명령어 (개별 씬 렌더링 - 간편 버전)
+    render_scene_parser = subparsers.add_parser("render-scene", help="단일 씬 Manim 렌더링")
+    render_scene_parser.add_argument("scene_id", help="씬 ID (예: s7)")
+    render_scene_parser.add_argument("--quality", "-q", default="l", choices=["l", "m", "h", "k"], help="렌더링 품질")
+
+    # compose-scene 명령어 (개별 씬 합성 - 간편 버전)
+    compose_scene_parser = subparsers.add_parser("compose-scene", help="단일 씬 합성")
+    compose_scene_parser.add_argument("scene_id", help="씬 ID (예: s7)")
+    compose_scene_parser.add_argument("--no-subtitle", action="store_true", help="자막 없이 합성")
+
+    # compose 명령어 (단일 씬)
+    compose_parser = subparsers.add_parser("compose", help="단일 씬 합성 (배경+Manim+오디오+자막)")
+    compose_parser.add_argument("--scene", "-s", required=True, help="씬 ID (예: s1)")
+    compose_parser.add_argument("--no-subtitle", action="store_true", help="자막 없이 합성")
+
+    # compose-all 명령어
+    compose_all_parser = subparsers.add_parser("compose-all", help="모든 씬 합성")
+    compose_all_parser.add_argument("--no-subtitle", action="store_true", help="자막 없이 합성")
+
+    # merge-final 명령어
+    subparsers.add_parser("merge-final", help="모든 씬을 최종 영상으로 병합")
+
+    # split-scenes 명령어
+    subparsers.add_parser("split-scenes", help="scenes.json을 개별 씬 파일로 분할 (토큰 절약)")
+
     args = parser.parse_args()
     
     # 명령어 없으면 도움말
@@ -2456,6 +4382,10 @@ def main():
     elif args.command == "status":
         project = ProjectManager(state)
         project.show_status()
+
+    elif args.command == "verify-sync":
+        tts = TTSGenerator(state)
+        tts.verify_sync(args.scene_id)
     
     elif args.command == "tts":
         tts = TTSGenerator(state)
@@ -2478,6 +4408,18 @@ def main():
         tts = TTSGenerator(state)
         tts.process_audio_files()
 
+    elif args.command == "asset-check":
+        assets = AssetManager(state)
+        assets.check_assets()
+
+    elif args.command == "asset-sync":
+        assets = AssetManager(state)
+        assets.sync_assets()
+
+    elif args.command == "catalog-update":
+        assets = AssetManager(state)
+        assets.update_catalog()
+
     elif args.command == "render":
         renderer = RenderManager(state)
         renderer.render_scene(
@@ -2493,7 +4435,11 @@ def main():
     elif args.command == "render-script":
         renderer = RenderManager(state)
         renderer.generate_render_script()
-    
+
+    elif args.command == "render-collect":
+        renderer = RenderManager(state)
+        renderer.collect_renders()
+
     elif args.command == "prompts-export":
         images = ImageManager(state)
         images.export_prompts()
@@ -2514,7 +4460,7 @@ def main():
     elif args.command == "files":
         files = FileManager(state)
         file_list = files.list_files()
-        
+
         if not file_list:
             print("❌ 활성 프로젝트가 없거나 파일이 없습니다.")
         else:
@@ -2523,7 +4469,46 @@ def main():
                 print(f"\n  {folder}/")
                 for item in sorted(items):
                     print(f"    - {item}")
-    
+
+    elif args.command == "subtitle-generate":
+        composer = ComposerManager(state)
+        composer.generate_subtitles()
+
+    elif args.command == "subtitle-scene":
+        composer = ComposerManager(state)
+        composer.generate_subtitle_for_scene(args.scene_id)
+
+    elif args.command == "tts-scene":
+        tts = TTSGenerator(state)
+        tts.generate_for_scene(args.scene_id)
+
+    elif args.command == "render-scene":
+        renderer = RenderManager(state)
+        renderer.render_scene(args.scene_id, quality=args.quality, preview=False)
+
+    elif args.command == "compose-scene":
+        composer = ComposerManager(state)
+        with_subtitle = not getattr(args, 'no_subtitle', False)
+        composer.compose_scene(args.scene_id, with_subtitle=with_subtitle)
+
+    elif args.command == "compose":
+        composer = ComposerManager(state)
+        with_subtitle = not getattr(args, 'no_subtitle', False)
+        composer.compose_scene(args.scene, with_subtitle=with_subtitle)
+
+    elif args.command == "compose-all":
+        composer = ComposerManager(state)
+        with_subtitle = not getattr(args, 'no_subtitle', False)
+        composer.compose_all(with_subtitle=with_subtitle)
+
+    elif args.command == "merge-final":
+        composer = ComposerManager(state)
+        composer.merge_final()
+
+    elif args.command == "split-scenes":
+        scene_splitter = SceneSplitter(state)
+        scene_splitter.split()
+
     else:
         print(f"❌ 알 수 없는 명령어: {args.command}")
         print("   python math_video_pipeline.py help 로 도움말을 확인하세요.")
