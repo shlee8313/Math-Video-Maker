@@ -2103,15 +2103,18 @@ class AssetManager:
                     if base_name not in required_assets:
                         required_assets[base_name] = {"scenes": [], "description": "", "tags": [], "original_name": elem}
                     required_assets[base_name]["scenes"].append(scene_id)
-                elif isinstance(elem, dict) and elem.get("type") == "image":
-                    # {"type": "image", "asset": "snack_bag" 또는 "snack_bag.png", "role": "..."} 형식
+                elif isinstance(elem, dict) and elem.get("type") in ["image", "icon"]:
+                    # {"type": "image"/"icon", "asset": "snack_bag" 또는 "snack_bag.png", "role": "..."} 형식
                     asset_name = elem.get("asset", elem.get("file", elem.get("path", "")))
+                    elem_type = elem.get("type")
                     if asset_name:
                         # 확장자 제거
                         base_name = asset_name.rsplit(".", 1)[0] if "." in asset_name else asset_name
 
-                        # 카테고리 추측 (파일명에서)
-                        if "stickman" in base_name or "pigou" in base_name:
+                        # 카테고리 결정: type이 icon이면 icons/, 아니면 기존 로직
+                        if elem_type == "icon":
+                            file_path = f"icons/{base_name}"
+                        elif "stickman" in base_name or "pigou" in base_name:
                             file_path = f"characters/{base_name}"
                         elif "_icon" in base_name or base_name in ["question_mark", "exclamation", "lightbulb", "checkmark", "arrow_right", "star", "heart", "clock", "calendar", "battery_low", "server_icon", "algorithm_icon", "amazon_logo", "dollar_sign"]:
                             file_path = f"icons/{base_name}"
@@ -3398,15 +3401,19 @@ class ComposerManager:
         # 자막 폴더 생성
         subtitle_path.mkdir(parents=True, exist_ok=True)
 
-        # scenes.json에서 narration_display 로드 (원본 텍스트)
+        # scenes.json에서 자막 텍스트 로드
+        # 우선순위: subtitle_display (;; 포함) > narration_display
         scene_texts = {}
         for scene_file in scenes_path.glob("s*.json"):
             try:
                 with open(scene_file, 'r', encoding='utf-8') as f:
                     scene_data = json.load(f)
                     scene_id = scene_data.get('scene_id', scene_file.stem)
-                    # narration_display 사용 (화면 자막용 텍스트)
-                    scene_texts[scene_id] = scene_data.get('narration_display', '')
+                    # subtitle_display 우선, 없으면 narration_display fallback
+                    subtitle_text = scene_data.get('subtitle_display', '')
+                    if not subtitle_text:
+                        subtitle_text = scene_data.get('narration_display', '')
+                    scene_texts[scene_id] = subtitle_text
             except Exception as e:
                 print(f"  ⚠️ {scene_file.name} 로드 실패: {e}")
 
@@ -3440,8 +3447,8 @@ class ComposerManager:
                 print(f"  ⚠️ {scene_id}: narration_display 없음, Whisper 텍스트 사용")
                 original_text = timing_data.get('whisper_text', '')
 
-            total_duration = timing_data.get('total_duration', 0)
-            timing_sentences = timing_data.get('sentences', [])
+            total_duration = timing_data.get('total_duration', timing_data.get('duration', 0))
+            timing_sentences = timing_data.get('sentences', timing_data.get('segments', []))
 
             # narration_display를 문장 분리 (.?! 기준)
             display_sentences = self._split_sentences(original_text)
@@ -3497,7 +3504,7 @@ class ComposerManager:
 
         subtitle_path.mkdir(parents=True, exist_ok=True)
 
-        # 씬 파일에서 narration_display 로드
+        # 씬 파일에서 subtitle_display 또는 narration_display 로드
         scene_file = scenes_path / f"{scene_id}.json"
         if not scene_file.exists():
             print(f"❌ 씬 파일을 찾을 수 없습니다: {scene_file}")
@@ -3505,7 +3512,10 @@ class ComposerManager:
 
         with open(scene_file, 'r', encoding='utf-8') as f:
             scene_data = json.load(f)
-        original_text = scene_data.get('narration_display', '')
+        # subtitle_display 우선, 없으면 narration_display fallback
+        original_text = scene_data.get('subtitle_display', '')
+        if not original_text:
+            original_text = scene_data.get('narration_display', '')
 
         # timing 파일 로드
         timing_file = audio_path / f"{scene_id}_timing.json"
@@ -3551,18 +3561,25 @@ class ComposerManager:
         return True
 
     def _split_sentences(self, text: str) -> List[str]:
-        """텍스트를 문장 단위로 분리 (. ? ! , 기준)"""
+        """텍스트를 문장 단위로 분리
+
+        핵심: Scene Director가 s{n}.json의 subtitle_display에 ;;로 분할 위치를 지정
+        Python은 ;; 기준으로 분리만 수행 (자동 분할 없음)
+
+        - ;; 구분자가 있으면: ;; 기준으로 분리
+        - ;; 구분자가 없으면: 텍스트 전체를 하나의 자막으로 사용
+        """
         if not text:
             return []
 
-        # . ? ! , 뒤에 공백이 오는 경우 분리
-        import re
-        sentences = re.split(r'(?<=[.?!,])\s+', text.strip())
+        # ;; 구분자가 있으면 ;; 기준으로 분리
+        if ';;' in text:
+            sentences = text.split(';;')
+            sentences = [s.strip() for s in sentences if s.strip()]
+            return sentences
 
-        # 빈 문장 제거 및 정리
-        sentences = [s.strip() for s in sentences if s.strip()]
-
-        return sentences
+        # ;; 가 없으면 텍스트 전체를 하나의 자막으로 반환
+        return [text.strip()]
 
     def _calculate_sentence_timings_from_segments(
         self,

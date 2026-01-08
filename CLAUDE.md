@@ -178,33 +178,35 @@ Claude가 할 것:
 > **역할**: Scene Director의 의미적 지시("What")를 Manim Coder가 바로 구현 가능한 구체적 시각 명세("How")로 변환
 >
 > **3단계 분리 이유**: 토큰 절약 + 실수 방지 (기존 대비 36% 토큰 절감)
+>
+> ⚠️ **배치 처리**: 30씬 단위로 에이전트를 자동 호출 (에이전트 컨텍스트 과부하 방지)
 
 ---
 
 #### Step 4.5a: Layout 단계 (객체 배치)
 
 > **Sub-agent 사용**: `visual-layout` 에이전트에게 작업 위임
-> 에이전트가 별도 컨텍스트에서 실행되어 메인 대화 컨텍스트 절약
+> **배치 단위**: 30씬씩 새 에이전트 호출 (컨텍스트 분리)
 
 Claude가 할 것:
 
-1. **`visual-layout` 에이전트 호출** (Task tool 사용)
-2. **개별 씬 파일 읽기** (토큰 절약):
-   - `2_scenes/s1.json`, `s2.json`, ... (필요한 씬만)
-   - ❌ `scenes.json` 전체 읽지 않음
-3. 각 씬에 대해 **objects만** 정의:
-   - **canvas**: 배경색, 안전 영역
-   - **objects**: 모든 객체의 상세 스펙
-     - id, type (Text/MathTex/ImageMobject/3D 등)
-     - position (관계 기반 또는 절대 좌표)
-     - size, color, font 등
-     - 3D 객체는 `fixed_in_frame` 여부
-   - **layout_notes**: 배치 의도 설명
-4. 씬별 파일로 저장 → `output/{project_id}/3_visual_prompts/s{n}_layout.json`
-5. 에이전트 완료 후 state.json 자동 업데이트
+1. **총 씬 수 확인** (state.json의 `scenes.total`)
+2. **30씬 단위로 배치 분할**:
+   - 예: 56씬 → [s1-s30], [s31-s56]
+3. **각 배치마다 새 `visual-layout` 에이전트 호출**:
+   ```
+   배치 1: visual-layout 에이전트 호출 (s1~s30)
+   ↓ 완료 대기
+   배치 2: visual-layout 에이전트 호출 (s31~s56) ← 새 컨텍스트
+   ```
+4. 에이전트가 할 것:
+   - `2_scenes/s{n}.json` 개별 파일 읽기
+   - objects 정의 (canvas, objects, layout_notes)
+   - `3_visual_prompts/s{n}_layout.json` 저장
+5. **모든 배치 완료 후** state.json 업데이트
 
-> 💡 **Sub-agent 장점**: 에이전트가 별도 컨텍스트에서 실행되므로 메인 대화 컨텍스트 오염 없음
-> → 모든 씬을 한 번에 처리 가능 (기존 10씬마다 /clear 불필요)
+> 💡 **배치 처리 장점**: 에이전트가 30씬만 처리하므로 컨텍스트 과부하 없음
+> → 각 배치가 독립적으로 실행되어 안정성 향상
 
 ✅ **Layout 전체 완료 후 Animation 단계로 자동 진행**
 
@@ -213,23 +215,23 @@ Claude가 할 것:
 #### Step 4.5b: Animation 단계 (시퀀스 추가)
 
 > **Sub-agent 사용**: `visual-animation` 에이전트에게 작업 위임
-> 에이전트가 별도 컨텍스트에서 실행되어 메인 대화 컨텍스트 절약
+> **배치 단위**: 30씬씩 새 에이전트 호출 (컨텍스트 분리)
 
 Claude가 할 것:
 
-1. **`visual-animation` 에이전트 호출** (Task tool 사용)
-2. **개별 파일 읽기**:
-   - `3_visual_prompts/s1_layout.json`, ... (해당 씬 레이아웃)
-   - `0_audio/s1_timing.json`, ... (타이밍 데이터)
-3. 각 씬에 대해 **sequence 추가**:
-   - timing.json의 segments에 맞춰 시간 배분
-   - step, time_range, actions, purpose
-   - 나레이션 동기화
-4. 최종 파일로 저장 → `output/{project_id}/3_visual_prompts/s{n}_visual.json`
-5. 에이전트 완료 후 state.json 자동 업데이트
-
-> 💡 **Sub-agent 장점**: 에이전트가 별도 컨텍스트에서 실행되므로 메인 대화 컨텍스트 오염 없음
-> → 모든 씬을 한 번에 처리 가능 (기존 10씬마다 /clear 불필요)
+1. **30씬 단위로 배치 분할** (Layout과 동일)
+2. **각 배치마다 새 `visual-animation` 에이전트 호출**:
+   ```
+   배치 1: visual-animation 에이전트 호출 (s1~s30)
+   ↓ 완료 대기
+   배치 2: visual-animation 에이전트 호출 (s31~s56) ← 새 컨텍스트
+   ```
+3. 에이전트가 할 것:
+   - `3_visual_prompts/s{n}_layout.json` 읽기
+   - `0_audio/s{n}_timing.json` 읽기
+   - sequence 추가 (timing 동기화)
+   - `3_visual_prompts/s{n}_visual.json` 저장
+4. **모든 배치 완료 후** state.json 업데이트
 
 ✅ **Animation 전체 완료 후 Review 단계로 자동 진행**
 
@@ -238,46 +240,65 @@ Claude가 할 것:
 #### Step 4.5c: Review 단계 (검증)
 
 > **Sub-agent 사용**: `visual-review` 에이전트에게 작업 위임
-> 에이전트가 별도 컨텍스트에서 실행되어 메인 대화 컨텍스트 절약
+> **배치 단위**: 30씬씩 새 에이전트 호출 (컨텍스트 분리)
 
 Claude가 할 것:
 
-1. **`visual-review` 에이전트 호출** (Task tool 사용)
-2. **visual.json 검증**:
-   - 구조 검증: 필수 필드 존재 여부
-   - objects 검증: id 고유성, 필수 필드, 세이프존
-   - sequence 검증: 시간 연속성, target 참조
-   - 3D 검증: scene_class, camera, fixed_in_frame
-3. 오류 발견 시:
-   - 자동 수정 가능 → 수정 적용
-   - 수동 필요 → 목록 보고
-4. 검증 통과 시 → "✅ s{n} 검증 완료" 출력
-5. 에이전트 완료 후 state.json 자동 업데이트 (`current_phase: "visual_prompts_completed"`)
-
-> 💡 **Sub-agent 장점**: 에이전트가 별도 컨텍스트에서 실행되므로 메인 대화 컨텍스트 오염 없음
-> → 모든 씬을 한 번에 처리 가능 (기존 10씬마다 /clear 불필요)
+1. **30씬 단위로 배치 분할**
+2. **각 배치마다 새 `visual-review` 에이전트 호출**:
+   ```
+   배치 1: visual-review 에이전트 호출 (s1~s30)
+   ↓ 완료 대기
+   배치 2: visual-review 에이전트 호출 (s31~s56) ← 새 컨텍스트
+   ```
+3. 에이전트가 할 것:
+   - visual.json 구조/objects/sequence/3D 검증
+   - 오류 자동 수정 또는 보고
+   - "✅ s{n} 검증 완료" 출력
+4. **모든 배치 완료 후** state.json 업데이트 (`current_phase: "visual_prompts_completed"`)
 
 ✅ **Review 전체 완료 후 Manim 코드 단계로 자동 진행**
 
 ---
 
-#### Visual Prompter 전체 흐름 요약 (Sub-agents 사용)
+#### Visual Prompter 배치 처리 흐름 (56씬 예시)
 
 ```
-🚀 Sub-agents 도입으로 /clear 횟수 대폭 감소!
+🚀 30씬 배치 단위로 자동 호출!
 
-Visual Prompter 3단계 (50씬 기준):
-├── visual-layout 에이전트: s1~s50 전체 Layout (별도 컨텍스트)
-├── visual-animation 에이전트: s1~s50 전체 Animation (별도 컨텍스트)
-└── visual-review 에이전트: s1~s50 전체 Review (별도 컨텍스트)
+Layout 단계:
+├── visual-layout 에이전트 #1: s1~s30 (새 컨텍스트)
+└── visual-layout 에이전트 #2: s31~s56 (새 컨텍스트)
 
-메인 대화 컨텍스트 사용량: 최소 (에이전트 호출/결과만)
-→ /clear 필요 없이 전체 단계 완료 가능!
+Animation 단계:
+├── visual-animation 에이전트 #1: s1~s30 (새 컨텍스트)
+└── visual-animation 에이전트 #2: s31~s56 (새 컨텍스트)
+
+Review 단계:
+├── visual-review 에이전트 #1: s1~s30 (새 컨텍스트)
+└── visual-review 에이전트 #2: s31~s56 (새 컨텍스트)
+
+총 6회 에이전트 호출 (각각 독립 컨텍스트)
+→ 에이전트 과부하 없이 안정적 처리!
+```
+
+#### 에이전트 호출 프롬프트 템플릿
+
+```
+[Layout/Animation/Review] 에이전트 호출 시:
+
+"s{시작}부터 s{끝}까지 [Layout/Animation/Review] 작업을 수행하세요.
+
+프로젝트: {project_id}
+씬 범위: s{시작} ~ s{끝}
+출력 경로: output/{project_id}/3_visual_prompts/
+
+skills/visual-prompter-[layout/animation/review].md를 참조하세요."
 ```
 
 > 💡 **자동 생성**: 사용자 승인 없이 자동 진행. 수정이 필요하면 "s3 비주얼 수정" 명령 사용.
 >
-> 💡 **Sub-agent 장점**: 각 에이전트가 독립 컨텍스트에서 실행 → 메인 대화 컨텍스트 절약
+> 💡 **배치 장점**: 30씬 단위로 분리되어 에이전트가 안정적으로 작업 가능
 
 ✅ **Visual Prompter 완료 후 Manim 코드 단계로 진행**
 
@@ -286,15 +307,25 @@ Visual Prompter 3단계 (50씬 기준):
 ### Step 5: Manim 코드 생성
 
 > **Sub-agent 사용**: `manim-coder` 에이전트에게 작업 위임
-> 에이전트가 별도 컨텍스트에서 실행되어 메인 대화 컨텍스트 절약
+> **배치 단위**: 20씬씩 새 에이전트 호출 (코드 생성량이 많아 더 작은 배치)
 
 Claude가 할 것:
 
-1. **`manim-coder` 에이전트 호출** (Task tool 사용)
-   - 에이전트가 `skills/manim-coder-reference.md` 참조
-2. **모든 씬 처리** (별도 컨텍스트에서 실행):
-   - Visual Prompter JSON 로드 (`3_visual_prompts/s{n}_visual.json`)
-   - 타이밍 데이터 로드 (`0_audio/{scene_id}_timing.json`)
+1. **총 씬 수 확인** (state.json의 `scenes.total`)
+2. **20씬 단위로 배치 분할**:
+   - 예: 56씬 → [s1-s20], [s21-s40], [s41-s56]
+3. **각 배치마다 새 `manim-coder` 에이전트 호출**:
+   ```
+   배치 1: manim-coder 에이전트 호출 (s1~s20)
+   ↓ 완료 대기
+   배치 2: manim-coder 에이전트 호출 (s21~s40) ← 새 컨텍스트
+   ↓ 완료 대기
+   배치 3: manim-coder 에이전트 호출 (s41~s56) ← 새 컨텍스트
+   ```
+4. 에이전트가 할 것:
+   - `skills/manim-coder-reference.md` 참조
+   - `3_visual_prompts/s{n}_visual.json` 로드
+   - `0_audio/s{n}_timing.json` 로드
    - JSON을 Python 코드로 변환:
      - objects → Mobject 생성 코드
      - sequence → self.play() / self.wait() 코드
@@ -306,10 +337,39 @@ Claude가 할 것:
      - 컬러 팔레트 준수
      - **PNG 에셋은 ImageMobject + set_height() 사용**
    - `output/{project_id}/4_manim_code/s{n}_manim.py` 저장
-3. 에이전트 완료 후 state.json 자동 업데이트 (`current_phase: "manim_completed"`)
+5. **모든 배치 완료 후** state.json 업데이트 (`current_phase: "manim_completed"`)
 
-> 💡 **Sub-agent 장점**: 에이전트가 별도 컨텍스트에서 실행되므로 메인 대화 컨텍스트 오염 없음
-> → 모든 씬을 한 번에 처리 가능 (기존 15씬마다 /clear 불필요)
+#### Manim 코드 배치 처리 흐름 (56씬 예시)
+
+```
+🚀 20씬 배치 단위로 자동 호출! (코드 생성량이 많아 더 작은 배치)
+
+Manim 코드 생성:
+├── manim-coder 에이전트 #1: s1~s20 (새 컨텍스트)
+├── manim-coder 에이전트 #2: s21~s40 (새 컨텍스트)
+└── manim-coder 에이전트 #3: s41~s56 (새 컨텍스트)
+
+총 3회 에이전트 호출 (각각 독립 컨텍스트)
+→ 에이전트 과부하 없이 안정적 처리!
+```
+
+#### 에이전트 호출 프롬프트 템플릿
+
+```
+manim-coder 에이전트 호출 시:
+
+"s{시작}부터 s{끝}까지 Manim 코드를 생성하세요.
+
+프로젝트: {project_id}
+씬 범위: s{시작} ~ s{끝}
+입력: 3_visual_prompts/s{n}_visual.json
+출력: 4_manim_code/s{n}_manim.py
+
+skills/manim-coder-reference.md를 참조하세요."
+```
+
+> 💡 **배치 처리 장점**: 에이전트가 20씬만 처리하므로 컨텍스트 과부하 없음
+> → 코드 생성량이 많아도 안정적 처리
 
 ✅ **Manim 코드 전체 완료 후 배경 이미지 단계로 진행**
 
@@ -469,24 +529,31 @@ Claude가 할 것:
 Claude: state.json 읽고 현재 단계 파악 → 이어서 진행
 ```
 
-### 권장 워크플로우 (Sub-agents 사용, 56씬 기준)
+### 권장 워크플로우 (배치 처리, 56씬 기준)
 
 ```
-🚀 기존 27세션 → 7~8세션으로 감소!
+🚀 배치 단위 자동 호출로 안정성 향상!
 
 준비 단계:
 ├── 세션 1: 시작 → 대본 승인 → /clear (선택)
 ├── 세션 2: 씬 분할 → 에셋 체크 → /clear (선택)
 └── 세션 3: TTS 생성 완료
 
-Visual Prompter + Manim 코드 (Sub-agents):
-├── 세션 4: visual-layout 에이전트 → 전체 Layout 완료
-├── 세션 5: visual-animation 에이전트 → 전체 Animation 완료
-├── 세션 6: visual-review 에이전트 → 전체 Review 완료
-└── 세션 7: manim-coder 에이전트 → 전체 코드 완료
+Visual Prompter (30씬 배치 자동 호출):
+├── Layout:    에이전트 #1 (s1~s30) → #2 (s31~s56)
+├── Animation: 에이전트 #1 (s1~s30) → #2 (s31~s56)
+└── Review:    에이전트 #1 (s1~s30) → #2 (s31~s56)
+
+Manim 코드 (20씬 배치 자동 호출):
+└── manim-coder: 에이전트 #1 (s1~s20) → #2 (s21~s40) → #3 (s41~s56)
 
 마무리:
-└── 세션 8: 렌더링 → 자막 → 합성 → 완료
+└── 렌더링 → 자막 → 합성 → 완료
+
+📊 에이전트 호출 횟수: 9회
+   - Visual Prompter: 6회 (30씬 × 2배치 × 3단계)
+   - Manim Coder: 3회 (20씬 × 3배치)
+→ 에이전트 과부하 없이 안정적 처리!
 ```
 
 ---
@@ -497,7 +564,7 @@ Visual Prompter + Manim 코드 (Sub-agents):
 {
   "project_id": "P20250615_143000",
   "title": "피타고라스 정리",
-  "current_phase": "visual_animation_in_progress",
+  "current_phase": "visual_layout_in_progress",
   "settings": {
     "style": "cyberpunk",
     "difficulty": "intermediate",
@@ -506,22 +573,28 @@ Visual Prompter + Manim 코드 (Sub-agents):
     "voice": "ash"
   },
   "scenes": {
-    "total": 50,
+    "total": 56,
     "completed": [],
-    "pending": ["s1", "s2", "...", "s50"],
+    "pending": ["s1", "s2", "...", "s56"],
     "current": null
   },
-  "visual_progress": {
-    "stage": "animation",
-    "completed_scenes": ["s1", "s2", "...", "s35"],
-    "next_scene": "s36"
+  "batch_progress": {
+    "stage": "visual_layout",
+    "batch_size": 30,
+    "current_batch": 1,
+    "total_batches": 2,
+    "completed_batches": [],
+    "batch_ranges": [
+      {"batch": 1, "start": "s1", "end": "s30", "status": "in_progress"},
+      {"batch": 2, "start": "s31", "end": "s56", "status": "pending"}
+    ]
   },
   "files": {
     "script": "output/P20250615_143000/1_script/reading_script.json",
     "scenes": "output/P20250615_143000/2_scenes/scenes.json",
-    "visual_layouts": ["s1_layout.json", "...", "s50_layout.json"],
-    "visual_prompts": ["s1_visual.json", "...", "s35_visual.json"],
-    "audio": ["s1.mp3", "...", "s50.mp3"],
+    "visual_layouts": ["s1_layout.json", "...", "s30_layout.json"],
+    "visual_prompts": [],
+    "audio": ["s1.mp3", "...", "s56.mp3"],
     "manim": []
   },
   "assets": {
@@ -533,7 +606,7 @@ Visual Prompter + Manim 코드 (Sub-agents):
 }
 ```
 
-### state.json 자동 업데이트 규칙 (Sub-agents 사용)
+### state.json 자동 업데이트 규칙 (배치 처리)
 
 | 단계 완료  | current_phase                  | 주요 업데이트                                       |
 | ---------- | ------------------------------ | --------------------------------------------------- |
@@ -541,25 +614,51 @@ Visual Prompter + Manim 코드 (Sub-agents):
 | Step 3     | scenes_approved                | files.scenes, scenes.total/pending, assets.required |
 | Step 3.5   | assets_checked                 | assets.available, assets.missing=[]                 |
 | Step 4     | tts_completed                  | files.audio[]                                       |
-| **Step 4.5 (전체완료)** | visual_prompts_completed | files.visual_prompts[] (에이전트가 자동 업데이트) |
-| **Step 5 (전체완료)** | manim_completed | files.manim[] (에이전트가 자동 업데이트) |
+| Step 4.5a (배치별) | visual_layout_in_progress | batch_progress 업데이트                          |
+| Step 4.5b (배치별) | visual_animation_in_progress | batch_progress 업데이트                       |
+| Step 4.5c (배치별) | visual_review_in_progress | batch_progress 업데이트                          |
+| **Step 4.5 (전체완료)** | visual_prompts_completed | files.visual_prompts[] 전체                    |
+| **Step 5 (배치별)** | manim_coding | batch_progress 업데이트                               |
+| **Step 5 (전체완료)** | manim_completed | files.manim[] 전체                                 |
 | Step 5.5   | images_ready                   | files.images[]                                      |
 | Step 6     | rendered                       | -                                                   |
 | Step 7     | completed                      | files.final_video                                   |
 
-### 💡 Sub-agents와 state.json
+### 💡 배치 처리와 state.json
 
-> Sub-agents 사용 시 각 에이전트가 작업 완료 후 state.json을 자동 업데이트합니다.
-> 사용자가 수동으로 체크할 필요 없음!
+> **배치 크기 (단계별 다름)**:
+> - Visual Prompter (Layout/Animation/Review): **30씬**
+> - Manim Coder: **20씬** (코드 생성량이 많아 더 작은 배치)
 
-**에이전트 완료 후 자동 업데이트 예시:**
+> **배치 처리 시 진행 상태 추적**:
+> - `batch_progress.stage`: 현재 단계 (visual_layout/visual_animation/visual_review/manim)
+> - `batch_progress.batch_size`: 현재 단계의 배치 크기 (30 또는 20)
+> - `batch_progress.current_batch`: 현재 배치 번호
+> - `batch_progress.batch_ranges[].status`: pending/in_progress/completed
+
+**배치 진행 중 state.json 예시:**
+```json
+{
+  "current_phase": "visual_layout_in_progress",
+  "batch_progress": {
+    "stage": "visual_layout",
+    "current_batch": 2,
+    "batch_ranges": [
+      {"batch": 1, "start": "s1", "end": "s30", "status": "completed"},
+      {"batch": 2, "start": "s31", "end": "s56", "status": "in_progress"}
+    ]
+  }
+}
+```
+
+**단계 전체 완료 후:**
 ```json
 {
   "current_phase": "visual_prompts_completed",
+  "batch_progress": null,
   "files": {
-    "visual_prompts": ["s1_visual.json", ..., "s50_visual.json"]
-  },
-  "last_updated": "2025-06-15T14:35:00"
+    "visual_prompts": ["s1_visual.json", ..., "s56_visual.json"]
+  }
 }
 ```
 
@@ -759,6 +858,28 @@ profit_eq[6].set_color("#888888")  # C 회색
 | narration_display | 화면 자막 | 9×9 = 81              |
 | narration_tts     | TTS 음성  | 구 곱하기 구는 팔십일 |
 
+### 자막 분할 규칙 (`;;` 구분자)
+
+> **Scene Director가 직접 `;;` 삽입** (Python은 자동 분할 안함)
+
+| 단계 | 담당자 | 역할 |
+| ---- | ------ | ---- |
+| 1 | Scene Director | `narration_display` + `subtitle_display`(`;;` 삽입) 작성 |
+| 2 | Pipeline | `;;` 기준 분리 → SRT 자막 생성 |
+
+**예시:**
+```json
+{
+  "narration_display": "V(s, t)는 현재 상태에서의 기대 수익을 의미합니다.",
+  "subtitle_display": "V(s, t)는 현재 상태에서의;;기대 수익을 의미합니다."
+}
+```
+→ SRT 1: "V(s, t)는 현재 상태에서의"
+→ SRT 2: "기대 수익을 의미합니다."
+
+> **주의**: 수식 `V(s, t)`나 따옴표 `"팔까, 기다릴까?"` 내부는 분할하지 않음
+> **상세 규칙**: `skills/scene-director.md` 참조
+
 ### 변환 규칙
 
 | 기호  | TTS 발음      |
@@ -799,18 +920,16 @@ Math-Video-Maker/
 │
 ├── skills/                        ← 가이드라인 문서 (참조용)
 │   ├── script-writer.md
-│   ├── scene-director.md              # Step 3: 씬 분할 (What)
+│   ├── scene-director.md              # Step 3: 씬 분할 + 자막 분할(;;)
 │   ├── visual-prompter-layout.md      # Step 4.5a: 객체 배치
 │   ├── visual-prompter-animation.md   # Step 4.5b: 시퀀스 추가
 │   ├── visual-prompter-review.md      # Step 4.5c: 검증
-│   ├── manim-visual-prompter.md       # (참조용, 전체 규칙)
 │   ├── manim-coder.md                 # Step 5: 코드 구현 (Code)
 │   ├── code-validator.md              # Step 5.1: 코드 검증/수정
 │   ├── manim-coder-reference.md       # 상세 패턴 (필요시 참조)
 │   ├── asset-catalog.md
 │   ├── asset-prompt-writer.md
-│   ├── image-prompt-writer.md
-│   └── subtitle-designer.md
+│   └── image-prompt-writer.md
 │
 └── output/                        ← 프로젝트별 출력
     └── {project_id}/
@@ -865,8 +984,8 @@ python math_video_pipeline.py audio-process
 # ===== 자동화 명령어 (NEW) =====
 
 # Visual Prompter 전체 자동화 (Layout → Animation → Review)
-python math_video_pipeline.py visual-all
-python math_video_pipeline.py visual-all --batch 5  # 배치 크기 조정
+python math_video_pipeline.py visual-all             # 기본 30씬 배치
+python math_video_pipeline.py visual-all --batch 20  # 배치 크기 조정
 
 # Visual Prompter 단계별 실행
 python math_video_pipeline.py visual-layout-all     # Layout만
@@ -874,8 +993,8 @@ python math_video_pipeline.py visual-animation-all  # Animation만
 python math_video_pipeline.py visual-review-all     # Review만
 
 # Manim 코드 전체 자동화
-python math_video_pipeline.py manim-all
-python math_video_pipeline.py manim-all --batch 10  # 배치 크기 조정
+python math_video_pipeline.py manim-all             # 기본 20씬 배치
+python math_video_pipeline.py manim-all --batch 15  # 배치 크기 조정
 
 # ===== 렌더링 및 합성 =====
 

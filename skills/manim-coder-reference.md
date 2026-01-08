@@ -78,6 +78,25 @@ icon.set_fill(YELLOW, opacity=1)  # 채우기 색상
 icon.set_stroke(WHITE, width=2)  # 외곽선
 ```
 
+**🔴 스타일별 SVG 색상 (중요!):**
+
+> SVG 파일은 기본 `#FFFFFF` (흰색). 밝은 배경에서는 반드시 변경!
+
+| 스타일 | 배경 타입 | SVG 색상 |
+|--------|-----------|----------|
+| minimal | 어두움 | WHITE (기본값) |
+| cyberpunk | 어두움 | WHITE, "#00FFFF" |
+| space | 어두움 | WHITE |
+| geometric | 어두움 | WHITE, GOLD |
+| stickman | 어두움 | WHITE |
+| **paper** | **밝음** | BLACK, "#00008B" ← 반드시 변경! |
+
+```python
+# paper 스타일에서 SVG 색상 변경 예시
+arrow = SVGMobject("assets/icons/arrow_right.svg")
+arrow.set_color(BLACK)  # 밝은 배경에서 보이도록 변경
+```
+
 **주의사항:**
 
 ```python

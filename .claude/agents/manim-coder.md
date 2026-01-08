@@ -254,6 +254,23 @@ text = Text("예시", color=GRAY_B)
 | MAGENTA  | `"#FF00FF"` |
 | LIME     | `"#00FF00"` |
 | AQUA     | `"#00FFFF"` |
+| DARK_BLUE | `"#00008B"` |
+| DARK_GREEN | `"#006400"` |
+| MAROON   | `"#800000"` |
+
+### 스타일별 권장 색상 (참조)
+
+> **중요**: Visual Prompter가 지정한 색상을 따르되,
+> 어두운 배경에서 어두운 색상이 지정된 경우 수정 필요!
+
+| 스타일 | 배경 | 텍스트 색상 | 강조 색상 |
+|--------|------|-------------|-----------|
+| minimal | #000000 (어두움) | WHITE, YELLOW | GREEN, RED |
+| cyberpunk | #0a0a0a (어두움) | WHITE, "#00FFFF", "#FF00FF" | YELLOW, "#FF6B6B" |
+| space | #000011 (어두움) | WHITE, BLUE | YELLOW, TEAL |
+| geometric | #1a1a1a (어두움) | WHITE, GOLD, YELLOW | GREEN, ORANGE |
+| stickman | #1a2a3a (어두움) | WHITE, YELLOW | GREEN, ORANGE |
+| **paper** | #f5f5dc (**밝음**) | BLACK, "#00008B" | "#006400", "#800000" |
 
 ---
 
@@ -431,6 +448,40 @@ question.set_height(1.0)
 
 ---
 
+### 13. GrowArrow는 Arrow() 클래스에만 사용
+
+`GrowArrow` 애니메이션은 **Manim의 `Arrow()` 클래스**에만 사용 가능합니다.
+SVG 파일을 로드한 `SVGMobject`에는 사용할 수 없습니다 (포인트가 없어서 오류 발생).
+
+```python
+# ❌ 틀림 - SVGMobject에 GrowArrow 사용 → "no points" 오류 발생!
+arrow_icon = SVGMobject("assets/icons/arrow_right.svg")
+arrow_icon.set_height(0.8)
+self.play(GrowArrow(arrow_icon))  # Exception: Cannot call Mobject.get_start for a Mobject with no points
+
+# ✅ 맞음 - SVGMobject에는 FadeIn 또는 Create 사용
+arrow_icon = SVGMobject("assets/icons/arrow_right.svg")
+arrow_icon.set_height(0.8)
+self.play(FadeIn(arrow_icon))  # wait_tag_s1_1
+
+# ✅ 맞음 - Manim Arrow() 클래스에는 GrowArrow 사용 가능
+arrow = Arrow(start=LEFT*2, end=RIGHT*2, color=WHITE)
+self.play(GrowArrow(arrow))  # wait_tag_s1_2
+```
+
+**SVG 아이콘에 사용 가능한 애니메이션:**
+- `FadeIn(svg)` - 페이드인 (권장)
+- `Create(svg)` - 그려지는 효과
+- `ScaleIn(svg)` - 커지면서 등장
+- `GrowFromCenter(svg)` - 중앙에서 커짐
+
+**GrowArrow 사용 가능한 객체:**
+- `Arrow(start, end)` - Manim 화살표 클래스
+- `Vector(direction)` - Manim 벡터 클래스
+- `DoubleArrow(start, end)` - 양방향 화살표
+
+---
+
 ## 크기 기준 (검증용)
 
 Visual Prompter가 제공한 크기 값이 적절한지 검증하는 기준입니다.
@@ -519,6 +570,7 @@ obj.shift(LEFT * 6)  # 조정됨: -8 → -6 (화면 안전 영역)
 - [ ] 모든 `self.play()`와 `self.wait()` 뒤에 `# wait_tag_s#_#` 있는가?
 - [ ] 색상에 `CYAN`, `MAGENTA` 등 정의되지 않은 상수를 사용하지 않았는가? (HEX 코드 사용)
 - [ ] 화살표(→←↑↓↗↘↔)나 물음표(?)를 Text/MathTex로 사용하지 않았는가? (SVG 에셋 사용)
+- [ ] SVGMobject에 GrowArrow를 사용하지 않았는가? (FadeIn 또는 Create 사용)
 
 ### 객체 생성
 

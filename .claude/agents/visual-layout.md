@@ -8,7 +8,7 @@ model: sonnet
 # Visual Prompter - Layout Stage
 
 > **역할**: Scene Director의 semantic_goal을 구체적인 객체 배치로 변환
-> **입력**: scenes.json, required_elements
+> **입력**: s{n}.json, required_elements
 > **출력**: s{n}_layout.json (objects 정의만)
 
 ---
@@ -577,18 +577,85 @@ STICKMAN_HEIGHT = 4.0 (기준값)
 
 ### 스타일별 팔레트
 
+> **🔴 중요**: 스타일에 따라 텍스트/아이콘 색상이 달라집니다!
+> 어두운 배경 → 밝은 색상 (WHITE, YELLOW, CYAN)
+> 밝은 배경 → 어두운 색상 (BLACK, DARK_BLUE)
+
 **minimal (어두운 배경)**
 ```
 배경: #000000
 텍스트: WHITE, YELLOW
 강조: GREEN, RED
+아이콘(SVG): WHITE
 ```
 
-**paper (밝은 배경)**
+**cyberpunk (어두운 배경)**
+```
+배경: #0a0a0a
+텍스트: WHITE, "#00FFFF", "#FF00FF"
+강조: YELLOW, "#FF6B6B"
+아이콘(SVG): WHITE, "#00FFFF"
+글로우: set_stroke(width=15, opacity=0.3)
+
+⚠️ CYAN/MAGENTA는 Manim NameError → HEX 필수!
+```
+
+**space (어두운 배경)**
+```
+배경: #000011
+텍스트: WHITE, BLUE
+강조: YELLOW, TEAL
+아이콘(SVG): WHITE
+```
+
+**geometric (어두운 배경)**
+```
+배경: #1a1a1a
+텍스트: WHITE, GOLD, YELLOW
+강조: GREEN, ORANGE
+아이콘(SVG): WHITE, GOLD
+```
+
+**stickman (어두운 배경)**
+```
+배경: #1a2a3a
+텍스트: WHITE, YELLOW
+강조: GREEN, ORANGE
+아이콘(SVG): WHITE
+캐릭터: PNG 에셋 사용 (코드로 그리지 않음)
+```
+
+**paper (밝은 배경)** ⚠️ 유일한 밝은 배경
 ```
 배경: #f5f5dc
-텍스트: BLACK, DARK_BLUE
-강조: DARK_GREEN, MAROON
+텍스트: BLACK, "#00008B"
+강조: "#006400", "#800000"
+아이콘(SVG): BLACK 또는 "#00008B"
+
+⚠️ DARK_BLUE/DARK_GREEN/MAROON은 Manim NameError → HEX 필수!
+```
+
+### SVG 아이콘 색상 처리
+
+> **주의**: SVG 파일은 기본 `#FFFFFF` (흰색)
+> paper 스타일에서는 반드시 색상 변경 필요!
+
+```json
+// 어두운 배경 (minimal, cyberpunk, space, geometric, stickman)
+{
+  "id": "arrow_icon",
+  "type": "SVGMobject",
+  "source": "assets/icons/arrow_right.svg",
+  "color": "WHITE"  // 기본값 유지
+}
+
+// 밝은 배경 (paper)
+{
+  "id": "arrow_icon",
+  "type": "SVGMobject",
+  "source": "assets/icons/arrow_right.svg",
+  "color": "BLACK"  // ⚠️ 반드시 어두운 색상으로 변경!
+}
 ```
 
 ---
@@ -725,6 +792,42 @@ output/{project_id}/3_visual_prompts/s{n}_layout.json
 ```
 
 **주의**: sequence는 Animation 단계에서 추가
+
+---
+
+## required_elements 타입 변환 규칙
+
+Scene Director의 `required_elements`를 Layout의 `objects`로 변환할 때:
+
+| required_elements.type | → Layout objects.type | 비고 |
+|------------------------|----------------------|------|
+| `text` | `Text` | 한글 텍스트 |
+| `math` | `MathTex` | 수식 |
+| `image` | `ImageMobject` | PNG 에셋 |
+| `graph` | `Axes` + 곡선 | 그래프 |
+| `shape` | `Circle`/`Rectangle`/etc | 도형 |
+| `arrow` | `Arrow` (Manim 클래스) | 두 점 연결 |
+| **`icon`** | **`SVGMobject`** | 화살표/물음표 등 SVG 아이콘 |
+| `3d_object` | `Cube`/`Sphere`/etc | 3D 객체 |
+
+### 🔴 icon 타입 변환 예시
+
+Scene Director에서 이렇게 정의되면:
+```json
+{"type": "icon", "asset": "arrow_right", "role": "가격 상승 표시"}
+```
+
+Layout에서 이렇게 변환:
+```json
+{
+  "id": "arrow_right_icon",
+  "type": "SVGMobject",
+  "source": "assets/icons/arrow_right.svg",
+  "size": {"height": 0.8},
+  "color": "WHITE",
+  "position": {"method": "shift", "x": 0, "y": 0}
+}
+```
 
 ---
 

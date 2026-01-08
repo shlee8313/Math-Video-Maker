@@ -1,3 +1,9 @@
+> **[ARCHIVED]** 이 파일은 더 이상 사용되지 않습니다.
+> Sub-agent로 대체됨: `.claude/agents/visual-review.md`
+> 참조용으로만 보관합니다.
+
+---
+
 # Visual Prompter - Review Stage
 
 > **역할**: 생성된 visual.json의 오류 검출 및 수정

@@ -1,3 +1,9 @@
+> **[ARCHIVED]** 이 파일은 더 이상 사용되지 않습니다.
+> Sub-agent로 대체됨: `.claude/agents/visual-animation.md`
+> 참조용으로만 보관합니다.
+
+---
+
 # Visual Prompter - Animation Stage
 
 > **역할**: Layout의 객체들에 시간순 애니메이션 시퀀스 추가

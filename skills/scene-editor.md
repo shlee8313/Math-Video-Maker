@@ -5,6 +5,19 @@
 
 ---
 
+## 🚀 수정 방식 선택
+
+> **1-2개 씬 수정**: Claude가 직접 처리 (빠름)
+> **3개 이상 씬 수정**: Sub-agents 사용 권장 (컨텍스트 절약)
+
+| 수정 씬 개수 | 권장 방식 | 이유 |
+|-------------|-----------|------|
+| 1-2개 | **직접 수정** | 에이전트 호출 오버헤드 > 직접 처리 |
+| 3개 이상 | **Sub-agents** | 컨텍스트 절약, 일관성 보장 |
+| 10개 이상 | **Sub-agents 필수** | 메인 컨텍스트 오염 방지 |
+
+---
+
 ## ⚠️ 수정 전 필수 검증
 
 > **중요**: 씬 내용(narration) 수정 시 반드시 대본-TTS 동기화 검증 필요!
@@ -45,21 +58,21 @@ script → scenes → tts → visual → manim → render → subtitle → compo
 
 ### 단계별 실행 방식
 
-| 단계 | 실행 방식 | Claude 필요 |
-|------|-----------|-------------|
-| script | Claude 작성 | ✅ |
-| scenes | Claude 작성 | ✅ |
-| tts | `python math_video_pipeline.py tts-scene {id}` | ❌ |
-| visual | Claude 작성 (visual-prompter-*.md) | ✅ |
-| manim | Claude 작성 (manim-coder.md) | ✅ |
-| render | `python math_video_pipeline.py render-scene {id}` | ❌ |
-| subtitle | `python math_video_pipeline.py subtitle-scene {id}` | ❌ |
-| compose | `python math_video_pipeline.py compose-scene {id}` | ❌ |
-| merge | `python math_video_pipeline.py merge-final` | ❌ |
+| 단계 | 실행 방식 | Claude 필요 | Sub-agent |
+|------|-----------|-------------|-----------|
+| script | Claude 작성 | ✅ | - |
+| scenes | Claude 작성 | ✅ | - |
+| tts | `python math_video_pipeline.py tts-scene {id}` | ❌ | - |
+| visual | Claude 작성 또는 Sub-agent | ✅ | `visual-layout`, `visual-animation`, `visual-review` |
+| manim | Claude 작성 또는 Sub-agent | ✅ | `manim-coder` |
+| render | `python math_video_pipeline.py render-scene {id}` | ❌ | - |
+| subtitle | `python math_video_pipeline.py subtitle-scene {id}` | ❌ | - |
+| compose | `python math_video_pipeline.py compose-scene {id}` | ❌ | - |
+| merge | `python math_video_pipeline.py merge-final` | ❌ | - |
 
 ---
 
-## 🔧 수정 유형별 절차
+## 🔧 수정 유형별 절차 (직접 수정 - 1-2개 씬)
 
 ### 1. TTS 재생성 (음성만 수정)
 
@@ -228,7 +241,154 @@ script → scenes → tts → visual → manim → render → subtitle → compo
 
 ---
 
+## 🤖 Sub-agents를 사용한 다중 씬 수정 (3개 이상)
+
+> **사용 시점**: 3개 이상의 씬을 동시에 수정할 때
+> **장점**: 메인 컨텍스트 절약, 일관성 보장, /clear 불필요
+
+### Sub-agents 호출 방식
+
+Claude가 Task tool을 사용하여 에이전트 호출:
+
+```
+Task tool 사용:
+- subagent_type: "visual-layout" 또는 "visual-animation" 또는 "visual-review" 또는 "manim-coder"
+- prompt: 수정할 씬 목록과 수정 내용 상세 설명
+```
+
+---
+
+### 다중 씬 Manim 수정 (3개 이상)
+
+**사용 케이스**: s3, s7, s12, s18, s25 애니메이션 일괄 수정
+
+**Claude가 할 것**:
+
+1. 수정 대상 씬 목록 확인
+2. 각 씬의 `3_visual_prompts/s{n}_visual.json` 수정 (필요시)
+3. **`manim-coder` 에이전트 호출** (Task tool 사용):
+   ```
+   prompt: |
+     다음 씬들의 Manim 코드를 수정해주세요:
+     - s3: [수정 내용 상세]
+     - s7: [수정 내용 상세]
+     - s12: [수정 내용 상세]
+     - s18: [수정 내용 상세]
+     - s25: [수정 내용 상세]
+
+     각 씬의 visual.json과 timing.json을 참조하여 코드 수정.
+   ```
+4. 에이전트 완료 후 렌더링:
+   ```bash
+   python math_video_pipeline.py render-scene s3
+   python math_video_pipeline.py render-scene s7
+   python math_video_pipeline.py render-scene s12
+   python math_video_pipeline.py render-scene s18
+   python math_video_pipeline.py render-scene s25
+   python math_video_pipeline.py compose-scene s3
+   python math_video_pipeline.py compose-scene s7
+   python math_video_pipeline.py compose-scene s12
+   python math_video_pipeline.py compose-scene s18
+   python math_video_pipeline.py compose-scene s25
+   ```
+5. `python math_video_pipeline.py merge-final`
+
+---
+
+### 다중 씬 Visual + Manim 수정 (3개 이상)
+
+**사용 케이스**: s5, s10, s15, s20 비주얼과 코드 모두 수정
+
+**Claude가 할 것**:
+
+1. 수정 대상 씬 목록 확인
+2. **단계별 에이전트 순차 호출**:
+
+   **Step 1: Layout 수정** (`visual-layout` 에이전트)
+   ```
+   prompt: |
+     다음 씬들의 Layout을 수정해주세요:
+     - s5: [객체 배치 수정 내용]
+     - s10: [객체 배치 수정 내용]
+     - s15: [객체 배치 수정 내용]
+     - s20: [객체 배치 수정 내용]
+   ```
+
+   **Step 2: Animation 수정** (`visual-animation` 에이전트)
+   ```
+   prompt: |
+     다음 씬들의 Animation을 수정해주세요:
+     - s5: [시퀀스 수정 내용]
+     - s10: [시퀀스 수정 내용]
+     - s15: [시퀀스 수정 내용]
+     - s20: [시퀀스 수정 내용]
+   ```
+
+   **Step 3: Review** (`visual-review` 에이전트)
+   ```
+   prompt: |
+     다음 씬들의 visual.json을 검증해주세요:
+     s5, s10, s15, s20
+   ```
+
+   **Step 4: Manim 코드** (`manim-coder` 에이전트)
+   ```
+   prompt: |
+     다음 씬들의 Manim 코드를 수정해주세요:
+     s5, s10, s15, s20
+
+     각 씬의 수정된 visual.json 참조.
+   ```
+
+3. 에이전트 완료 후 렌더링 및 합성 (위와 동일)
+
+---
+
+### 다중 씬 내용 전체 수정 (3개 이상)
+
+**사용 케이스**: s8, s9, s10 대사와 시각화 모두 변경
+
+**Claude가 할 것**:
+
+1. `2_scenes/s{n}.json` 직접 수정 (narration_display, narration_tts)
+2. TTS 재생성:
+   ```bash
+   python math_video_pipeline.py tts-scene s8
+   python math_video_pipeline.py tts-scene s9
+   python math_video_pipeline.py tts-scene s10
+   ```
+3. **Sub-agents로 Visual + Manim 처리** (위 "다중 씬 Visual + Manim 수정" 참조)
+4. 렌더링 및 합성
+
+---
+
+### 다중 씬 삽입 (3개 이상 새 씬)
+
+**사용 케이스**: s10 뒤에 s10a, s10b, s10c 삽입
+
+**Claude가 할 것**:
+
+1. 새 씬 JSON 생성 (`2_scenes/s10a.json`, `s10b.json`, `s10c.json`)
+2. TTS 생성:
+   ```bash
+   python math_video_pipeline.py tts-scene s10a
+   python math_video_pipeline.py tts-scene s10b
+   python math_video_pipeline.py tts-scene s10c
+   ```
+3. **Sub-agents로 Visual + Manim 생성**:
+
+   **Layout** → **Animation** → **Review** → **Manim** (순차 호출)
+
+   각 에이전트 prompt에 새 씬 목록 전달: `s10a, s10b, s10c`
+
+4. 렌더링, 자막, 합성
+5. `scenes.json` 업데이트 및 `merge-final`
+
+---
+
 ## 📊 수정 유형별 요약표
+
+### 직접 수정 (1-2개 씬)
 
 | # | 수정 유형 | Claude 작업 | CLI 명령어 |
 |---|-----------|-------------|------------|
@@ -242,6 +402,15 @@ script → scenes → tts → visual → manim → render → subtitle → compo
 | 8 | 배경 교체 | 이미지 교체 | compose-scene |
 | 9 | 자막 스타일 | pipeline.py 수정 | compose-all |
 
+### Sub-agents 사용 (3개 이상 씬)
+
+| 수정 유형 | 사용 에이전트 | 순서 |
+|-----------|--------------|------|
+| Visual만 수정 | visual-layout → visual-animation → visual-review | 순차 |
+| Manim만 수정 | manim-coder | 단독 |
+| Visual + Manim | visual-layout → visual-animation → visual-review → manim-coder | 순차 |
+| 내용 전체 | Claude(scene.json) + TTS CLI + 위 에이전트들 | 혼합 |
+
 ---
 
 ## ⚠️ 주의사항
@@ -250,6 +419,8 @@ script → scenes → tts → visual → manim → render → subtitle → compo
 2. **의존성 주의**: 상위 단계 수정 시 하위 단계 모두 재실행 필요
 3. **씬 ID 규칙**: 삽입 시 `s16b`, `s16c` 형태로 명명 (기존 번호 유지)
 4. **state.json 동기화**: 수정 후 반드시 state.json 업데이트
+5. **Sub-agents 순서**: Visual 에이전트는 Layout → Animation → Review 순서 필수
+6. **에이전트 prompt**: 수정 내용을 상세히 설명해야 정확한 수정 가능
 
 ---
 
@@ -259,12 +430,28 @@ script → scenes → tts → visual → manim → render → subtitle → compo
 # 현재 프로젝트 상태 확인
 python math_video_pipeline.py status
 
-# 특정 씬 파일 존재 확인
-ls output/{project_id}/2_scenes/s7.json
-ls output/{project_id}/3_visual_prompts/s7_visual.json
-ls output/{project_id}/4_manim_code/s7_manim.py
-ls output/{project_id}/0_audio/s7.mp3
-ls output/{project_id}/8_renders/s7.mov
-ls output/{project_id}/7_subtitles/s7.srt
-ls output/{project_id}/10_scene_final/s7_final.mp4
+# 특정 씬 파일 존재 확인 (Windows)
+dir output\{project_id}\2_scenes\s7.json
+dir output\{project_id}\3_visual_prompts\s7_visual.json
+dir output\{project_id}\4_manim_code\s7_manim.py
+dir output\{project_id}\0_audio\s7.mp3
+dir output\{project_id}\8_renders\s7.mov
+dir output\{project_id}\7_subtitles\s7.srt
+dir output\{project_id}\10_scene_final\s7_final.mp4
+```
+
+---
+
+## 💡 Sub-agents vs 직접 수정 결정 가이드
+
+```
+수정할 씬 개수?
+├── 1-2개 → 직접 수정 (skills 파일 참조)
+├── 3-9개 → Sub-agents 권장 (컨텍스트 절약)
+└── 10개+ → Sub-agents 필수 (메인 컨텍스트 보호)
+
+수정 복잡도?
+├── 단순 (자막, 배경) → 직접 수정
+├── 중간 (Manim만) → 1-2개: 직접, 3개+: Sub-agent
+└── 복잡 (Visual+Manim) → Sub-agents 권장
 ```
