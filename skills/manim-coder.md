@@ -1,3 +1,9 @@
+> **[ARCHIVED]** 이 파일은 더 이상 사용되지 않습니다.
+> Sub-agent로 대체됨: `.claude/agents/manim-coder.md`
+> 참조용으로만 보관합니다.
+
+---
+
 # Manim Coder Skill
 
 > ⚠️ **필수**: 이 파일과 함께 **`manim-coder-reference.md`를 반드시 읽으세요.**

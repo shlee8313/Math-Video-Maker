@@ -383,6 +383,12 @@ class StateManager:
         self._state = state
         self.save()
     
+    def reset(self) -> None:
+        """상태를 기본값으로 초기화"""
+        self._state = self._default_state()
+        self.save()
+        print("✅ state.json 초기화됨")
+
     def add_file(self, category: str, filepath: str) -> None:
         """파일 경로 추가"""
         state = self.load()
@@ -802,6 +808,272 @@ class ProjectManager:
         
         elif phase == "completed":
             print("   🎉 프로젝트가 완료되었습니다!")
+
+    def list_projects(self) -> List[Dict]:
+        """output 폴더 내 모든 프로젝트 목록 조회"""
+        projects = []
+
+        if not OUTPUT_DIR.exists():
+            print("❌ output 폴더가 없습니다.")
+            return projects
+
+        for item in OUTPUT_DIR.iterdir():
+            if item.is_dir() and item.name.startswith("P"):
+                # 프로젝트 폴더 정보 수집
+                project_info = {
+                    "id": item.name,
+                    "path": str(item),
+                    "folders": {},
+                    "total_size": 0
+                }
+
+                # 각 하위 폴더 상태 확인
+                for folder in item.iterdir():
+                    if folder.is_dir():
+                        files = list(folder.glob("*"))
+                        file_count = len([f for f in files if f.is_file()])
+                        folder_size = sum(f.stat().st_size for f in files if f.is_file())
+                        project_info["folders"][folder.name] = {
+                            "files": file_count,
+                            "size": folder_size
+                        }
+                        project_info["total_size"] += folder_size
+
+                projects.append(project_info)
+
+        # 날짜 기준 정렬 (최신순)
+        projects.sort(key=lambda x: x["id"], reverse=True)
+
+        # 출력
+        print("\n" + "="*70)
+        print("📁 프로젝트 목록")
+        print("="*70)
+
+        if not projects:
+            print("❌ 프로젝트가 없습니다.")
+            return projects
+
+        current_project = self.state.get("project_id")
+
+        for p in projects:
+            is_current = "⭐" if p["id"] == current_project else "  "
+            size_mb = p["total_size"] / (1024 * 1024)
+            print(f"{is_current} {p['id']} ({size_mb:.1f} MB)")
+
+            # 주요 폴더 상태
+            folder_status = []
+            folder_order = ["1_script", "2_scenes", "0_audio", "4_manim_code", "8_renders", "10_scene_final"]
+            for fname in folder_order:
+                if fname in p["folders"]:
+                    count = p["folders"][fname]["files"]
+                    if count > 0:
+                        folder_status.append(f"{fname.split('_')[-1]}:{count}")
+
+            if folder_status:
+                print(f"      └─ {', '.join(folder_status)}")
+
+        print("="*70)
+        print(f"총 {len(projects)}개 프로젝트")
+
+        return projects
+
+    def delete_project(self, project_id: str, force: bool = False) -> bool:
+        """프로젝트 삭제"""
+        import shutil
+
+        project_dir = OUTPUT_DIR / project_id
+
+        if not project_dir.exists():
+            print(f"❌ 프로젝트를 찾을 수 없습니다: {project_id}")
+            return False
+
+        # 현재 활성 프로젝트인지 확인
+        current_project = self.state.get("project_id")
+        is_current = project_id == current_project
+
+        # 삭제 전 정보 표시
+        total_size = sum(f.stat().st_size for f in project_dir.rglob("*") if f.is_file())
+        file_count = len(list(project_dir.rglob("*")))
+
+        print(f"\n🗑️  삭제 대상: {project_id}")
+        print(f"   📁 경로: {project_dir}")
+        print(f"   📊 파일: {file_count}개")
+        print(f"   💾 크기: {total_size / (1024*1024):.1f} MB")
+        if is_current:
+            print(f"   ⚠️  현재 활성 프로젝트입니다!")
+
+        if not force:
+            print("\n⚠️  이 작업은 되돌릴 수 없습니다!")
+            print("   삭제를 확인하려면 --force 옵션을 추가하세요:")
+            print(f"   python math_video_pipeline.py delete {project_id} --force")
+            return False
+
+        # 삭제 실행
+        try:
+            shutil.rmtree(project_dir)
+            print(f"\n✅ 프로젝트 삭제 완료: {project_id}")
+
+            # 현재 프로젝트였다면 state 초기화
+            if is_current:
+                self.state.reset()
+                print("   state.json 초기화됨")
+
+            return True
+        except Exception as e:
+            print(f"❌ 삭제 실패: {e}")
+            return False
+
+    def clean_project(self, project_id: str = None, folders: List[str] = None, force: bool = False) -> bool:
+        """프로젝트 특정 폴더 내용 정리 (폴더 구조는 유지)"""
+        import shutil
+
+        # 프로젝트 ID 결정
+        if project_id is None:
+            project_id = self.state.get("project_id")
+
+        if not project_id:
+            print("❌ 프로젝트 ID를 지정하거나 활성 프로젝트가 필요합니다.")
+            return False
+
+        project_dir = OUTPUT_DIR / project_id
+
+        if not project_dir.exists():
+            print(f"❌ 프로젝트를 찾을 수 없습니다: {project_id}")
+            return False
+
+        # 정리할 폴더 결정
+        all_folders = [
+            "0_audio", "1_script", "2_scenes", "3_visual_plans",
+            "4_manim_code", "5_validation", "6_image_prompts",
+            "7_subtitles", "8_renders", "9_backgrounds", "10_scene_final"
+        ]
+
+        if folders is None:
+            target_folders = all_folders
+        else:
+            # 사용자 지정 폴더 검증
+            target_folders = []
+            for f in folders:
+                # 숫자만 입력해도 매칭
+                matched = [af for af in all_folders if f in af or af.startswith(f)]
+                target_folders.extend(matched)
+            target_folders = list(set(target_folders))
+
+        if not target_folders:
+            print("❌ 정리할 폴더가 없습니다.")
+            return False
+
+        # 정리 대상 정보 표시
+        print(f"\n🧹 정리 대상: {project_id}")
+        total_files = 0
+        total_size = 0
+
+        for folder_name in sorted(target_folders):
+            folder_path = project_dir / folder_name
+            if folder_path.exists():
+                files = list(folder_path.glob("*"))
+                file_count = len([f for f in files if f.is_file()])
+                folder_size = sum(f.stat().st_size for f in files if f.is_file())
+                if file_count > 0:
+                    print(f"   📁 {folder_name}: {file_count}개 ({folder_size/(1024*1024):.1f} MB)")
+                    total_files += file_count
+                    total_size += folder_size
+
+        if total_files == 0:
+            print("   ✅ 정리할 파일이 없습니다.")
+            return True
+
+        print(f"\n   📊 총 {total_files}개 파일, {total_size/(1024*1024):.1f} MB")
+
+        if not force:
+            print("\n⚠️  이 작업은 되돌릴 수 없습니다!")
+            print("   정리를 확인하려면 --force 옵션을 추가하세요")
+            return False
+
+        # 정리 실행
+        cleaned_count = 0
+        for folder_name in target_folders:
+            folder_path = project_dir / folder_name
+            if folder_path.exists():
+                for item in folder_path.iterdir():
+                    if item.is_file():
+                        item.unlink()
+                        cleaned_count += 1
+                    elif item.is_dir():
+                        shutil.rmtree(item)
+                        cleaned_count += 1
+
+        print(f"\n✅ 정리 완료: {cleaned_count}개 항목 삭제")
+        return True
+
+    def reset_project(self, project_id: str = None, from_phase: str = None, force: bool = False) -> bool:
+        """프로젝트를 특정 단계로 리셋 (해당 단계 이후 산출물 삭제)"""
+
+        # 프로젝트 ID 결정
+        if project_id is None:
+            project_id = self.state.get("project_id")
+
+        if not project_id:
+            print("❌ 프로젝트 ID를 지정하거나 활성 프로젝트가 필요합니다.")
+            return False
+
+        project_dir = OUTPUT_DIR / project_id
+
+        if not project_dir.exists():
+            print(f"❌ 프로젝트를 찾을 수 없습니다: {project_id}")
+            return False
+
+        # 단계별 삭제 대상 폴더 정의
+        phase_folders = {
+            "initialized": ["1_script", "2_scenes", "3_visual_plans", "4_manim_code",
+                           "5_validation", "6_image_prompts", "7_subtitles",
+                           "8_renders", "9_backgrounds", "10_scene_final", "0_audio"],
+            "script_approved": ["2_scenes", "3_visual_plans", "4_manim_code",
+                               "5_validation", "6_image_prompts", "7_subtitles",
+                               "8_renders", "9_backgrounds", "10_scene_final", "0_audio"],
+            "scenes_completed": ["3_visual_plans", "4_manim_code", "5_validation",
+                                "6_image_prompts", "7_subtitles", "8_renders",
+                                "9_backgrounds", "10_scene_final", "0_audio"],
+            "assets_checked": ["3_visual_plans", "4_manim_code", "5_validation",
+                              "6_image_prompts", "7_subtitles", "8_renders",
+                              "9_backgrounds", "10_scene_final", "0_audio"],
+            "tts_completed": ["3_visual_plans", "4_manim_code", "5_validation",
+                             "6_image_prompts", "7_subtitles", "8_renders",
+                             "9_backgrounds", "10_scene_final"],
+            "visual_prompts_completed": ["4_manim_code", "5_validation",
+                                        "8_renders", "10_scene_final"],
+            "manim_completed": ["5_validation", "8_renders", "10_scene_final"],
+            "manim_validated": ["8_renders", "10_scene_final"],
+            "images_ready": ["10_scene_final"],
+            "rendered": ["10_scene_final"],
+        }
+
+        if from_phase is None:
+            print("\n📋 사용 가능한 리셋 지점:")
+            for phase in phase_folders.keys():
+                folders = phase_folders[phase]
+                print(f"   {phase}: {len(folders)}개 폴더 삭제")
+            print("\n사용법: python math_video_pipeline.py reset --from <phase> --force")
+            return False
+
+        if from_phase not in phase_folders:
+            print(f"❌ 알 수 없는 단계: {from_phase}")
+            print(f"   사용 가능: {', '.join(phase_folders.keys())}")
+            return False
+
+        target_folders = phase_folders[from_phase]
+
+        print(f"\n🔄 리셋 대상: {project_id}")
+        print(f"   📍 리셋 지점: {from_phase}")
+        print(f"   📁 삭제 폴더: {', '.join(target_folders)}")
+
+        if not force:
+            print("\n⚠️  이 작업은 되돌릴 수 없습니다!")
+            print(f"   python math_video_pipeline.py reset --from {from_phase} --force")
+            return False
+
+        # 리셋 실행
+        return self.clean_project(project_id, target_folders, force=True)
 
 
 # ============================================================================
@@ -1244,11 +1516,42 @@ class TTSGenerator:
 
         return timing_data
     
+    def _get_narration_tts(self, project_dir: Path, scene_id: str, scene_data: dict) -> str:
+        """narration_tts 텍스트를 가져옴 (우선순위: narration#.json > scenes.json)
+
+        Args:
+            project_dir: 프로젝트 디렉토리
+            scene_id: 씬 ID (예: s1)
+            scene_data: scenes.json에서 읽은 씬 데이터 (fallback용)
+
+        Returns:
+            narration_tts 텍스트
+        """
+        # 1. narration#.json 우선 확인
+        narration_file = project_dir / "2_narration" / f"{scene_id}_narration.json"
+        if narration_file.exists():
+            try:
+                with open(narration_file, 'r', encoding='utf-8') as f:
+                    narration_data = json.load(f)
+                    narration_tts = narration_data.get("narration_tts", "")
+                    if narration_tts:
+                        return narration_tts
+            except Exception:
+                pass
+
+        # 2. Fallback: scenes.json의 narration_tts 또는 narration_display
+        return scene_data.get("narration_tts") or scene_data.get("narration_display", "")
+
     def generate_all_from_scenes(self, start_from: int = 1) -> List[Dict[str, Any]]:
         """scenes.json의 모든 씬에 대해 TTS 생성 (문장별)
 
         Args:
             start_from: 시작할 씬 번호 (1부터 시작, 예: 14면 s14부터 시작)
+
+        텍스트 소스 우선순위:
+            1. 2_narration/{scene_id}_narration.json의 narration_tts
+            2. 2_scenes/scenes.json의 narration_tts (fallback)
+            3. 2_scenes/scenes.json의 narration_display (fallback)
         """
         project_id = self.state.get("project_id", "unknown")
         project_dir = OUTPUT_DIR / project_id
@@ -1271,7 +1574,15 @@ class TTSGenerator:
             print("❌ 씬이 없습니다.")
             return []
 
+        # narration 파일 존재 여부 확인
+        narration_dir = project_dir / "2_narration"
+        use_narration_files = narration_dir.exists() and list(narration_dir.glob("*_narration.json"))
+
         print(f"\n🎬 총 {len(scenes)}개 씬 TTS 생성 시작 (OpenAI TTS)")
+        if use_narration_files:
+            print(f"   📁 텍스트 소스: 2_narration/")
+        else:
+            print(f"   📁 텍스트 소스: 2_scenes/scenes.json (fallback)")
         if start_from > 1:
             print(f"   s{start_from}부터 시작 (s1-s{start_from-1} 건너뜀)")
         print("="*60)
@@ -1300,7 +1611,8 @@ class TTSGenerator:
                 skipped += 1
                 continue
 
-            text = scene.get("narration_tts") or scene.get("narration_display", "")
+            # narration_tts 텍스트 가져오기 (narration#.json 우선)
+            text = self._get_narration_tts(project_dir, scene_id, scene)
 
             if not text:
                 print(f"\n⚠️  [{scene_id}] 나레이션 텍스트가 없습니다. 건너뜁니다.")
@@ -1344,7 +1656,7 @@ class TTSGenerator:
         return results
 
     def generate_for_scene(self, scene_id: str) -> Optional[Dict[str, Any]]:
-        """단일 씬의 TTS 재생성 (scenes.json에서 텍스트 자동 로드)"""
+        """단일 씬의 TTS 재생성 (narration#.json 우선, scenes.json fallback)"""
         project_id = self.state.get("project_id", "unknown")
         project_dir = OUTPUT_DIR / project_id
         scenes_dir = project_dir / "2_scenes"
@@ -1375,7 +1687,8 @@ class TTSGenerator:
                 print(f"❌ 씬을 찾을 수 없습니다: {scene_id}")
                 return None
 
-        text = scene_data.get("narration_tts") or scene_data.get("narration_display", "")
+        # narration_tts 텍스트 가져오기 (narration#.json 우선)
+        text = self._get_narration_tts(project_dir, scene_id, scene_data)
         if not text:
             print(f"❌ {scene_id}: 나레이션 텍스트가 없습니다.")
             return None
@@ -1490,8 +1803,8 @@ class TTSGenerator:
     def export_texts(self) -> Optional[Path]:
         """외부 녹음용 텍스트 JSON 내보내기
 
-        scenes.json에서 모든 씬의 narration_tts를 문장별로 분리하여
-        0_audio/tts_texts.json으로 내보냅니다.
+        narration#.json (우선) 또는 scenes.json에서 모든 씬의 narration_tts를
+        문장별로 분리하여 0_audio/tts_texts.json으로 내보냅니다.
 
         Returns:
             생성된 JSON 파일 경로 (실패 시 None)
@@ -1525,16 +1838,26 @@ class TTSGenerator:
         audio_dir = project_dir / "0_audio"
         audio_dir.mkdir(parents=True, exist_ok=True)
 
+        # narration 파일 존재 여부 확인
+        narration_dir = project_dir / "2_narration"
+        use_narration_files = narration_dir.exists() and list(narration_dir.glob("*_narration.json"))
+
         # 문장별 텍스트 수집
         tts_texts = {}
         total_sentences = 0
 
         print(f"🎙️ 외부 녹음용 텍스트 내보내기")
+        if use_narration_files:
+            print(f"   📁 텍스트 소스: 2_narration/")
+        else:
+            print(f"   📁 텍스트 소스: 2_scenes/scenes.json (fallback)")
         print("=" * 60)
 
         for scene in scenes:
             scene_id = scene.get("scene_id", "")
-            narration_tts = scene.get("narration_tts", "")
+
+            # narration_tts 가져오기 (narration#.json 우선)
+            narration_tts = self._get_narration_tts(project_dir, scene_id, scene)
 
             if not narration_tts:
                 continue
@@ -3290,6 +3613,143 @@ class SceneSplitter:
 
 
 # ============================================================================
+# 나레이션 추출 (Narration Designer용)
+# ============================================================================
+
+class NarrationExtractor:
+    """씬 파일에서 narration_display를 추출하여 Narration Designer에게 전달"""
+
+    def __init__(self, state: StateManager):
+        self.state = state
+
+    def extract(self, scene_ids: Optional[List[str]] = None):
+        """씬 파일들에서 narration_display를 추출하여 출력
+
+        Args:
+            scene_ids: 추출할 씬 ID 목록. None이면 전체 추출
+        """
+        project_id = self.state.get("project_id")
+        if not project_id:
+            print("❌ 활성 프로젝트가 없습니다.")
+            return
+
+        scenes_path = Path(f"output/{project_id}/2_scenes")
+        if not scenes_path.exists():
+            print(f"❌ 씬 폴더가 없습니다: {scenes_path}")
+            return
+
+        # 씬 파일 목록 가져오기
+        if scene_ids:
+            scene_files = [scenes_path / f"{sid}.json" for sid in scene_ids]
+            scene_files = [f for f in scene_files if f.exists()]
+        else:
+            scene_files = sorted(scenes_path.glob("s*.json"),
+                               key=lambda x: self._scene_sort_key(x.stem))
+
+        if not scene_files:
+            print("❌ 씬 파일이 없습니다.")
+            return
+
+        # narration_display 추출
+        extractions = []
+        for scene_file in scene_files:
+            try:
+                with open(scene_file, "r", encoding="utf-8") as f:
+                    scene_data = json.load(f)
+
+                scene_id = scene_data.get("scene_id", scene_file.stem)
+                narration_display = scene_data.get("narration_display", "")
+
+                if narration_display:
+                    extractions.append({
+                        "scene_id": scene_id,
+                        "narration_display": narration_display
+                    })
+            except Exception as e:
+                print(f"  ⚠️ {scene_file.name} 로드 실패: {e}")
+
+        # 결과 출력 (Claude가 읽어서 Narration Designer에게 전달)
+        print(f"\n📝 나레이션 추출 완료: {len(extractions)}개 씬")
+        print("\n```json")
+        print(json.dumps(extractions, ensure_ascii=False, indent=2))
+        print("```")
+        print(f"\n💡 위 내용을 Narration Designer에게 전달하세요.")
+        print(f"   출력 위치: output/{project_id}/2_narration/")
+
+    def _scene_sort_key(self, scene_id: str):
+        """씬 ID 정렬 키 (s1, s2, ..., s10, s11, ...)"""
+        import re
+        match = re.match(r's(\d+)([a-z]*)', scene_id)
+        if match:
+            return (int(match.group(1)), match.group(2))
+        return (0, scene_id)
+
+    def save_narration(self, scene_id: str, subtitle_display: str, narration_tts: str):
+        """Narration Designer가 생성한 나레이션을 저장
+
+        Args:
+            scene_id: 씬 ID (예: s1)
+            subtitle_display: 자막용 텍스트 (;; 구분자 포함)
+            narration_tts: TTS 음성용 텍스트 (한글 발음)
+        """
+        project_id = self.state.get("project_id")
+        if not project_id:
+            print("❌ 활성 프로젝트가 없습니다.")
+            return False
+
+        narration_path = Path(f"output/{project_id}/2_narration")
+        narration_path.mkdir(parents=True, exist_ok=True)
+
+        narration_data = {
+            "scene_id": scene_id,
+            "subtitle_display": subtitle_display,
+            "narration_tts": narration_tts
+        }
+
+        output_file = narration_path / f"{scene_id}_narration.json"
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(narration_data, f, ensure_ascii=False, indent=2)
+
+        print(f"  ✅ {output_file.name} 저장됨")
+        return True
+
+    def check_narrations(self) -> Dict[str, Any]:
+        """나레이션 파일 상태 확인"""
+        project_id = self.state.get("project_id")
+        if not project_id:
+            return {"error": "활성 프로젝트가 없습니다."}
+
+        scenes_path = Path(f"output/{project_id}/2_scenes")
+        narration_path = Path(f"output/{project_id}/2_narration")
+
+        # 씬 목록
+        scene_files = list(scenes_path.glob("s*.json")) if scenes_path.exists() else []
+        scene_ids = [f.stem for f in scene_files]
+
+        # 나레이션 파일 목록
+        narration_files = list(narration_path.glob("*_narration.json")) if narration_path.exists() else []
+        completed_ids = [f.stem.replace("_narration", "") for f in narration_files]
+
+        missing = [sid for sid in scene_ids if sid not in completed_ids]
+
+        result = {
+            "total_scenes": len(scene_ids),
+            "completed": len(completed_ids),
+            "missing": missing,
+            "missing_count": len(missing)
+        }
+
+        print(f"\n📊 나레이션 상태:")
+        print(f"   전체 씬: {result['total_scenes']}개")
+        print(f"   완료: {result['completed']}개")
+        print(f"   미완료: {result['missing_count']}개")
+        if missing:
+            print(f"   미완료 목록: {', '.join(missing[:10])}{'...' if len(missing) > 10 else ''}")
+
+        return result
+
+
+# ============================================================================
 # 영상 합성 및 자막 관리
 # ============================================================================
 
@@ -3378,14 +3838,44 @@ class ComposerManager:
         millis = int((seconds % 1) * 1000)
         return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
+    def _get_subtitle_display(self, project_dir: Path, scene_id: str, scene_data: dict) -> str:
+        """subtitle_display 텍스트를 가져옴 (우선순위: narration#.json > scenes.json)
+
+        Args:
+            project_dir: 프로젝트 디렉토리
+            scene_id: 씬 ID (예: s1)
+            scene_data: scenes.json에서 읽은 씬 데이터 (fallback용)
+
+        Returns:
+            subtitle_display 텍스트
+        """
+        # 1. narration#.json 우선 확인
+        narration_file = project_dir / "2_narration" / f"{scene_id}_narration.json"
+        if narration_file.exists():
+            try:
+                with open(narration_file, 'r', encoding='utf-8') as f:
+                    narration_data = json.load(f)
+                    subtitle_display = narration_data.get("subtitle_display", "")
+                    if subtitle_display:
+                        return subtitle_display
+            except Exception:
+                pass
+
+        # 2. Fallback: scenes.json의 subtitle_display 또는 narration_display
+        return scene_data.get("subtitle_display") or scene_data.get("narration_display", "")
+
     def generate_subtitles(self) -> bool:
         """모든 씬의 SRT 자막 생성 (문장 단위)
 
-        텍스트 소스: scenes.json의 narration_display (Whisper 인식 결과가 아님!)
+        텍스트 소스 우선순위:
+            1. 2_narration/{scene_id}_narration.json의 subtitle_display (;; 포함)
+            2. 2_scenes/{scene_id}.json의 subtitle_display (fallback)
+            3. 2_scenes/{scene_id}.json의 narration_display (fallback)
+
         타이밍 소스: timing.json의 sentences 배열 (Whisper segments)
 
         방식:
-        1. narration_display를 .?! 기준으로 문장 분리 → 텍스트
+        1. subtitle_display를 ;; 또는 .?! 기준으로 문장 분리 → 텍스트
         2. timing.json의 sentences 배열에서 타이밍 추출 → start/end
         3. 문장 수 일치하면 1:1 매핑, 불일치하면 균등 분배
         """
@@ -3397,22 +3887,32 @@ class ComposerManager:
         audio_path = paths["audio"]
         subtitle_path = paths["subtitles"]
         scenes_path = paths["scenes"]
+        project_dir = paths["base"]
 
         # 자막 폴더 생성
         subtitle_path.mkdir(parents=True, exist_ok=True)
 
+        # narration 파일 존재 여부 확인
+        narration_dir = project_dir / "2_narration"
+        use_narration_files = narration_dir.exists() and list(narration_dir.glob("*_narration.json"))
+
+        print(f"\n📝 자막 생성 시작")
+        if use_narration_files:
+            print(f"   📁 텍스트 소스: 2_narration/")
+        else:
+            print(f"   📁 텍스트 소스: 2_scenes/ (fallback)")
+        print("="*60)
+
         # scenes.json에서 자막 텍스트 로드
-        # 우선순위: subtitle_display (;; 포함) > narration_display
+        # 우선순위: narration#.json > subtitle_display > narration_display
         scene_texts = {}
         for scene_file in scenes_path.glob("s*.json"):
             try:
                 with open(scene_file, 'r', encoding='utf-8') as f:
                     scene_data = json.load(f)
                     scene_id = scene_data.get('scene_id', scene_file.stem)
-                    # subtitle_display 우선, 없으면 narration_display fallback
-                    subtitle_text = scene_data.get('subtitle_display', '')
-                    if not subtitle_text:
-                        subtitle_text = scene_data.get('narration_display', '')
+                    # subtitle_display 가져오기 (narration#.json 우선)
+                    subtitle_text = self._get_subtitle_display(project_dir, scene_id, scene_data)
                     scene_texts[scene_id] = subtitle_text
             except Exception as e:
                 print(f"  ⚠️ {scene_file.name} 로드 실패: {e}")
@@ -3492,7 +3992,7 @@ class ComposerManager:
         return True
 
     def generate_subtitle_for_scene(self, scene_id: str) -> bool:
-        """단일 씬의 SRT 자막 생성"""
+        """단일 씬의 SRT 자막 생성 (narration#.json 우선, scenes.json fallback)"""
         paths = self._get_project_paths()
         if not paths:
             print("❌ 활성 프로젝트가 없습니다.")
@@ -3501,10 +4001,11 @@ class ComposerManager:
         audio_path = paths["audio"]
         subtitle_path = paths["subtitles"]
         scenes_path = paths["scenes"]
+        project_dir = paths["base"]
 
         subtitle_path.mkdir(parents=True, exist_ok=True)
 
-        # 씬 파일에서 subtitle_display 또는 narration_display 로드
+        # 씬 파일에서 데이터 로드
         scene_file = scenes_path / f"{scene_id}.json"
         if not scene_file.exists():
             print(f"❌ 씬 파일을 찾을 수 없습니다: {scene_file}")
@@ -3512,10 +4013,9 @@ class ComposerManager:
 
         with open(scene_file, 'r', encoding='utf-8') as f:
             scene_data = json.load(f)
-        # subtitle_display 우선, 없으면 narration_display fallback
-        original_text = scene_data.get('subtitle_display', '')
-        if not original_text:
-            original_text = scene_data.get('narration_display', '')
+
+        # subtitle_display 가져오기 (narration#.json 우선)
+        original_text = self._get_subtitle_display(project_dir, scene_id, scene_data)
 
         # timing 파일 로드
         timing_file = audio_path / f"{scene_id}_timing.json"
@@ -4075,6 +4575,375 @@ def convert_to_tts_text(text: str) -> str:
     return result.strip()
 
 
+# ============================================================================
+# ValidatorManager - visual.json 검증
+# ============================================================================
+
+class ValidatorManager:
+    """Visual JSON 검증 매니저 (visual-review.md 기반)"""
+
+    # Manim 색상 상수 목록
+    VALID_COLORS = {
+        "WHITE", "BLACK", "GRAY", "GRAY_A", "GRAY_B", "GRAY_C", "GRAY_D", "GRAY_E",
+        "RED", "RED_A", "RED_B", "RED_C", "RED_D", "RED_E",
+        "GREEN", "GREEN_A", "GREEN_B", "GREEN_C", "GREEN_D", "GREEN_E",
+        "BLUE", "BLUE_A", "BLUE_B", "BLUE_C", "BLUE_D", "BLUE_E",
+        "YELLOW", "YELLOW_A", "YELLOW_B", "YELLOW_C", "YELLOW_D", "YELLOW_E",
+        "ORANGE", "PINK", "PURPLE", "TEAL", "GOLD", "MAROON",
+        "CYAN", "MAGENTA", "LIGHT_GRAY", "DARK_GRAY", "LIGHT_BROWN", "DARK_BROWN"
+    }
+
+    # 타입별 필수 필드
+    TYPE_REQUIRED_FIELDS = {
+        "ImageMobject": ["source", "size"],
+        "SVGMobject": ["source", "size"],
+        "Text": ["content", "font_size", "color"],
+        "MathTex": ["content", "font_size", "color"],
+        "Rectangle": ["width", "height"],
+        "Circle": ["radius"],
+        "Arrow": ["start", "end"],
+        "Axes": ["x_range", "y_range", "x_length", "y_length"],
+    }
+
+    # position method별 필수 필드
+    POSITION_REQUIRED_FIELDS = {
+        "shift": ["x", "y"],
+        "to_edge": ["edge"],
+        "to_corner": ["corner"],
+        "next_to": ["reference", "direction"],
+        "move_to": ["reference"],
+    }
+
+    def __init__(self, state: StateManager):
+        self.state = state
+        self.project_id = state.get("project_id")
+        self.output_dir = Path(f"output/{self.project_id}")
+        self.visual_dir = self.output_dir / "3_visual_prompts"
+        self.errors = []
+        self.warnings = []
+        self.auto_fixed = []
+
+    def validate_all(self, auto_fix: bool = True):
+        """모든 visual.json 파일 검증"""
+        if not self.project_id:
+            print("❌ 활성 프로젝트가 없습니다.")
+            return
+
+        if not self.visual_dir.exists():
+            print(f"❌ visual_prompts 폴더가 없습니다: {self.visual_dir}")
+            return
+
+        # visual 파일 목록
+        visual_files = sorted(self.visual_dir.glob("s*_visual.json"))
+        if not visual_files:
+            print("❌ 검증할 visual.json 파일이 없습니다.")
+            return
+
+        print(f"\n🔍 Visual JSON 검증 시작 ({len(visual_files)}개 파일)")
+        print("=" * 60)
+
+        total_errors = 0
+        total_warnings = 0
+        total_fixed = 0
+        failed_scenes = []
+
+        for vf in visual_files:
+            scene_id = vf.stem.replace("_visual", "")
+            self.errors = []
+            self.warnings = []
+            self.auto_fixed = []
+
+            try:
+                with open(vf, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+                # 검증 수행
+                self._validate_structure(data)
+                self._validate_objects(data)
+                self._validate_sequence(data)
+                self._validate_3d(data)
+                self._validate_timing(data)
+
+                # 자동 수정
+                if auto_fix and (self.auto_fixed or self._needs_auto_fix(data)):
+                    data = self._apply_auto_fixes(data)
+                    with open(vf, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, ensure_ascii=False, indent=2)
+
+                # 결과 출력
+                if self.errors:
+                    print(f"❌ {scene_id}: {len(self.errors)} 오류, {len(self.warnings)} 경고")
+                    for e in self.errors[:3]:  # 최대 3개만 표시
+                        print(f"   - [ERROR] {e}")
+                    if len(self.errors) > 3:
+                        print(f"   ... 외 {len(self.errors) - 3}개 오류")
+                    failed_scenes.append(scene_id)
+                elif self.warnings:
+                    print(f"⚠️  {scene_id}: {len(self.warnings)} 경고")
+                    for w in self.warnings[:2]:
+                        print(f"   - [WARN] {w}")
+                else:
+                    print(f"✅ {scene_id}: 통과")
+
+                if self.auto_fixed:
+                    print(f"   🔧 자동 수정: {len(self.auto_fixed)}개")
+                    total_fixed += len(self.auto_fixed)
+
+                total_errors += len(self.errors)
+                total_warnings += len(self.warnings)
+
+            except json.JSONDecodeError as e:
+                print(f"❌ {scene_id}: JSON 파싱 오류 - {e}")
+                total_errors += 1
+                failed_scenes.append(scene_id)
+            except Exception as e:
+                print(f"❌ {scene_id}: 검증 오류 - {e}")
+                total_errors += 1
+                failed_scenes.append(scene_id)
+
+        # 최종 요약
+        print("\n" + "=" * 60)
+        if total_errors == 0:
+            print(f"✅ 검증 완료: 모든 {len(visual_files)}개 파일 통과")
+        else:
+            print(f"❌ 검증 결과: {total_errors} 오류, {total_warnings} 경고")
+            print(f"   실패 씬: {', '.join(failed_scenes)}")
+
+        if total_fixed > 0:
+            print(f"🔧 자동 수정: 총 {total_fixed}개 항목")
+
+        return total_errors == 0
+
+    def _validate_structure(self, data: dict):
+        """구조 검증 - 필수 최상위 필드"""
+        required_fields = [
+            "scene_id", "is_3d", "scene_class", "style",
+            "total_duration", "canvas", "objects", "sequence"
+        ]
+
+        for field in required_fields:
+            if field not in data:
+                self.errors.append(f"필수 필드 누락: {field}")
+
+        # canvas 검증
+        if "canvas" in data:
+            canvas = data["canvas"]
+            if "background" not in canvas:
+                self.warnings.append("canvas.background 누락")
+            if "safe_margin" not in canvas:
+                self.warnings.append("canvas.safe_margin 누락")
+
+        # 배열 타입 확인
+        if "objects" in data and not isinstance(data["objects"], list):
+            self.errors.append("objects는 배열이어야 함")
+
+        if "sequence" in data and not isinstance(data["sequence"], list):
+            self.errors.append("sequence는 배열이어야 함")
+
+    def _validate_objects(self, data: dict):
+        """objects 검증"""
+        objects = data.get("objects", [])
+        ids_seen = set()
+
+        for i, obj in enumerate(objects):
+            obj_id = obj.get("id", f"[index {i}]")
+
+            # id 검증
+            if "id" not in obj:
+                self.errors.append(f"objects[{i}]: id 누락")
+            elif obj["id"] in ids_seen:
+                self.errors.append(f"objects[{i}]: id '{obj['id']}' 중복")
+            else:
+                ids_seen.add(obj["id"])
+
+            # type 검증
+            if "type" not in obj:
+                self.errors.append(f"{obj_id}: type 누락")
+
+            # position 검증
+            if "position" not in obj:
+                self.warnings.append(f"{obj_id}: position 누락")
+            else:
+                self._validate_position(obj_id, obj["position"])
+
+            # 타입별 필수 필드
+            obj_type = obj.get("type", "")
+            if obj_type in self.TYPE_REQUIRED_FIELDS:
+                for field in self.TYPE_REQUIRED_FIELDS[obj_type]:
+                    # size는 height 또는 width로 대체 가능
+                    if field == "size":
+                        if "size" not in obj and "height" not in obj.get("size", {}):
+                            if not obj.get("size"):
+                                self.warnings.append(f"{obj_id}: size 누락")
+                    elif field not in obj:
+                        self.warnings.append(f"{obj_id}: {field} 누락 ({obj_type} 필수)")
+
+            # 한글 텍스트 폰트 검증
+            if obj_type == "Text":
+                content = obj.get("content", "")
+                if any('\uac00' <= c <= '\ud7a3' for c in content):  # 한글 포함
+                    font = obj.get("font", "")
+                    if "Noto Sans KR" not in font and "NanumGothic" not in font:
+                        self.warnings.append(f"{obj_id}: 한글 텍스트에 font='Noto Sans KR' 권장")
+
+            # 에셋 경로 검증
+            if "source" in obj:
+                source = obj["source"]
+                if not source.startswith("assets/"):
+                    self.errors.append(f"{obj_id}: source는 'assets/'로 시작해야 함")
+                # 파일 존재 확인
+                asset_path = Path(source)
+                if not asset_path.exists():
+                    self.warnings.append(f"{obj_id}: 에셋 파일 없음: {source}")
+
+            # 색상 검증
+            color = obj.get("color", "")
+            if color and not color.startswith("#"):  # 헥스 코드가 아닌 경우
+                if color not in self.VALID_COLORS:
+                    self.warnings.append(f"{obj_id}: 알 수 없는 색상 '{color}'")
+
+    def _validate_position(self, obj_id: str, position: dict):
+        """position 검증"""
+        method = position.get("method", "shift")
+
+        # method별 필수 필드
+        if method in self.POSITION_REQUIRED_FIELDS:
+            for field in self.POSITION_REQUIRED_FIELDS[method]:
+                if field not in position:
+                    self.warnings.append(f"{obj_id}: position.{field} 누락 (method: {method})")
+
+        # 세이프존 검증
+        x = position.get("x", 0)
+        y = position.get("y", 0)
+
+        if abs(x) > 6.6:
+            self.warnings.append(f"{obj_id}: x={x} 화면 밖 (권장: -6.6 ~ 6.6)")
+            self.auto_fixed.append((obj_id, "x", max(-6.5, min(6.5, x))))
+
+        if y < -2.5:
+            self.warnings.append(f"{obj_id}: y={y} 자막 영역 침범 (권장: y >= -2.5)")
+            self.auto_fixed.append((obj_id, "y", -2.3))
+        elif y > 3.5:
+            self.warnings.append(f"{obj_id}: y={y} 화면 밖 (권장: y <= 3.5)")
+            self.auto_fixed.append((obj_id, "y", 3.3))
+
+    def _validate_sequence(self, data: dict):
+        """sequence 검증"""
+        sequence = data.get("sequence", [])
+        objects_ids = {obj.get("id") for obj in data.get("objects", [])}
+
+        prev_end = 0
+        for i, step in enumerate(sequence):
+            step_num = step.get("step", i + 1)
+
+            # 필수 필드
+            if "step" not in step:
+                self.warnings.append(f"sequence[{i}]: step 번호 누락")
+
+            if "time_range" not in step:
+                self.errors.append(f"step {step_num}: time_range 누락")
+            else:
+                tr = step["time_range"]
+                if len(tr) != 2:
+                    self.errors.append(f"step {step_num}: time_range는 [start, end] 형식")
+                else:
+                    start, end = tr
+
+                    # 시간 연속성
+                    if i == 0 and start != 0:
+                        self.warnings.append(f"step 1: time_range[0]은 0이어야 함")
+                    elif i > 0 and abs(start - prev_end) > 0.01:
+                        self.warnings.append(f"step {step_num}: 시간 불연속 ({prev_end} → {start})")
+
+                    prev_end = end
+
+            # actions 검증
+            actions = step.get("actions", [])
+            if not actions:
+                self.warnings.append(f"step {step_num}: actions 비어있음")
+
+            for j, action in enumerate(actions):
+                action_type = action.get("type", "")
+                target = action.get("target", "")
+
+                # target 참조 확인
+                if target and target not in objects_ids:
+                    if action_type != "wait":
+                        self.errors.append(f"step {step_num}: target '{target}' 미정의")
+
+                # run_time 검증
+                if "run_time" not in action and action_type != "wait":
+                    self.warnings.append(f"step {step_num}: action[{j}] run_time 누락")
+
+                # Transform 검증
+                if action_type in ["Transform", "ReplacementTransform"]:
+                    to_target = action.get("to", "")
+                    if not to_target:
+                        self.errors.append(f"step {step_num}: {action_type}에 'to' 필드 필수")
+                    elif to_target not in objects_ids:
+                        self.errors.append(f"step {step_num}: Transform to '{to_target}' 미정의")
+
+        # 마지막 step과 total_duration 일치
+        total_duration = data.get("total_duration", 0)
+        if sequence and prev_end != total_duration:
+            diff = abs(prev_end - total_duration)
+            if diff > 0.5:
+                self.warnings.append(f"sequence 끝({prev_end}s)과 total_duration({total_duration}s) 불일치")
+
+    def _validate_3d(self, data: dict):
+        """3D 씬 검증"""
+        is_3d = data.get("is_3d", False)
+        scene_class = data.get("scene_class", "Scene")
+
+        # 3D 객체 존재 확인
+        objects = data.get("objects", [])
+        three_d_types = {"Cube", "Cylinder", "Sphere", "Cone", "Surface", "ThreeDAxes"}
+        has_3d_objects = any(obj.get("type") in three_d_types for obj in objects)
+
+        if has_3d_objects and not is_3d:
+            self.errors.append("3D 객체 사용 시 is_3d: true 필수")
+
+        if is_3d:
+            if scene_class != "ThreeDScene":
+                self.errors.append("is_3d: true이면 scene_class: 'ThreeDScene' 필수")
+
+            if "camera" not in data:
+                self.warnings.append("3D 씬에서 camera 설정 권장")
+
+            # 텍스트/수식 fixed_in_frame 확인
+            for obj in objects:
+                if obj.get("type") in ["Text", "MathTex"]:
+                    if not obj.get("fixed_in_frame", False):
+                        self.warnings.append(f"{obj.get('id')}: 3D 씬 텍스트에 fixed_in_frame: true 권장")
+
+    def _validate_timing(self, data: dict):
+        """타이밍 검증"""
+        total_duration = data.get("total_duration", 0)
+
+        if total_duration <= 0:
+            self.errors.append("total_duration은 0보다 커야 함")
+
+        # 씬 길이 권장 범위 (5~30초)
+        if total_duration < 5:
+            self.warnings.append(f"씬 길이 {total_duration}s가 너무 짧음 (권장: 5초 이상)")
+        elif total_duration > 30:
+            self.warnings.append(f"씬 길이 {total_duration}s가 너무 김 (권장: 30초 이하)")
+
+    def _needs_auto_fix(self, data: dict) -> bool:
+        """자동 수정 필요 여부"""
+        return len(self.auto_fixed) > 0
+
+    def _apply_auto_fixes(self, data: dict) -> dict:
+        """자동 수정 적용"""
+        for obj_id, field, value in self.auto_fixed:
+            for obj in data.get("objects", []):
+                if obj.get("id") == obj_id:
+                    if "position" in obj:
+                        obj["position"][field] = value
+
+        return data
+
+
 def print_help():
     """도움말 출력"""
     help_text = """
@@ -4098,11 +4967,35 @@ def print_help():
 
   status        현재 프로젝트 상태 확인
 
+  list          모든 프로젝트 목록 조회
+                output/ 폴더 내 프로젝트 목록과 크기 표시
+
+  delete        프로젝트 삭제
+                <project_id>       삭제할 프로젝트 ID (필수)
+                --force, -f        확인 없이 삭제
+
+  clean         프로젝트 폴더 내용 정리 (폴더 구조 유지)
+                --project, -p      프로젝트 ID (기본: 현재 프로젝트)
+                --folders, -d      정리할 폴더 (예: 0_audio 8_renders)
+                --force, -f        확인 없이 정리
+
+  reset         프로젝트를 특정 단계로 리셋
+                --project, -p      프로젝트 ID (기본: 현재 프로젝트)
+                --from             리셋 시작 단계 (예: tts_completed)
+                --force, -f        확인 없이 리셋
+
   tts           단일 씬 TTS 생성
                 --scene s1         씬 ID (필수)
                 --text "텍스트"    나레이션 텍스트 (필수)
 
-  tts-all       모든 씬 TTS 생성 (scenes.json 기반)
+  tts-all       모든 씬 TTS 생성
+                (텍스트 소스: 2_narration/ 우선, 없으면 scenes.json)
+
+  narration-extract  씬에서 narration_display 추출 (Narration Designer용)
+                     --scenes s1,s2,s3  추출할 씬 ID (쉼표 구분, 생략시 전체)
+
+  narration-check    나레이션 파일 상태 확인
+                     (완료/미완료 씬 목록 표시)
 
   prompts-export    모든 이미지 프롬프트를 하나의 파일로 내보내기
                     → 6_image_prompts/prompts_batch.txt
@@ -4261,10 +5154,34 @@ def main():
     # status 명령어
     subparsers.add_parser("status", help="현재 상태 확인")
 
+    # list 명령어 (프로젝트 목록)
+    subparsers.add_parser("list", help="모든 프로젝트 목록 조회")
+
+    # delete 명령어 (프로젝트 삭제)
+    delete_parser = subparsers.add_parser("delete", help="프로젝트 삭제")
+    delete_parser.add_argument("project_id", help="삭제할 프로젝트 ID (예: P20250110_143000)")
+    delete_parser.add_argument("--force", "-f", action="store_true", help="확인 없이 삭제")
+
+    # clean 명령어 (폴더 내용 정리)
+    clean_parser = subparsers.add_parser("clean", help="프로젝트 폴더 내용 정리 (폴더 구조는 유지)")
+    clean_parser.add_argument("--project", "-p", help="프로젝트 ID (기본: 현재 프로젝트)")
+    clean_parser.add_argument("--folders", "-d", nargs="+", help="정리할 폴더 (예: 0_audio 8_renders)")
+    clean_parser.add_argument("--force", "-f", action="store_true", help="확인 없이 정리")
+
+    # reset 명령어 (단계 리셋)
+    reset_parser = subparsers.add_parser("reset", help="프로젝트를 특정 단계로 리셋")
+    reset_parser.add_argument("--project", "-p", help="프로젝트 ID (기본: 현재 프로젝트)")
+    reset_parser.add_argument("--from", dest="from_phase", help="리셋 시작 단계 (예: tts_completed)")
+    reset_parser.add_argument("--force", "-f", action="store_true", help="확인 없이 리셋")
+
     # verify-sync 명령어 (대본-TTS 동기화 검증)
     verify_sync_parser = subparsers.add_parser("verify-sync", help="대본(scenes.json)과 TTS 녹음 동기화 검증")
     verify_sync_parser.add_argument("scene_id", nargs="?", help="씬 ID (예: s7). 생략하면 전체 검증")
-    
+
+    # validate-all 명령어 (visual.json 검증)
+    validate_parser = subparsers.add_parser("validate-all", help="모든 visual.json 검증 (visual-review.md 기반)")
+    validate_parser.add_argument("--no-fix", action="store_true", help="자동 수정 비활성화")
+
     # tts 명령어
     tts_parser = subparsers.add_parser("tts", help="단일 씬 TTS 생성")
     tts_parser.add_argument("--scene", "-s", required=True, help="씬 ID")
@@ -4371,6 +5288,13 @@ def main():
     # split-scenes 명령어
     subparsers.add_parser("split-scenes", help="scenes.json을 개별 씬 파일로 분할 (토큰 절약)")
 
+    # narration-extract 명령어 (Narration Designer용)
+    narration_extract_parser = subparsers.add_parser("narration-extract", help="씬에서 narration_display 추출 (Narration Designer용)")
+    narration_extract_parser.add_argument("--scenes", "-s", help="추출할 씬 ID (쉼표 구분, 예: s1,s2,s3)")
+
+    # narration-check 명령어 (나레이션 파일 상태 확인)
+    subparsers.add_parser("narration-check", help="나레이션 파일 상태 확인")
+
     args = parser.parse_args()
     
     # 명령어 없으면 도움말
@@ -4400,10 +5324,39 @@ def main():
         project = ProjectManager(state)
         project.show_status()
 
+    elif args.command == "list":
+        project = ProjectManager(state)
+        project.list_projects()
+
+    elif args.command == "delete":
+        project = ProjectManager(state)
+        project.delete_project(args.project_id, force=args.force)
+
+    elif args.command == "clean":
+        project = ProjectManager(state)
+        project.clean_project(
+            project_id=args.project,
+            folders=args.folders,
+            force=args.force
+        )
+
+    elif args.command == "reset":
+        project = ProjectManager(state)
+        project.reset_project(
+            project_id=args.project,
+            from_phase=args.from_phase,
+            force=args.force
+        )
+
     elif args.command == "verify-sync":
         tts = TTSGenerator(state)
         tts.verify_sync(args.scene_id)
-    
+
+    elif args.command == "validate-all":
+        validator = ValidatorManager(state)
+        auto_fix = not getattr(args, 'no_fix', False)
+        validator.validate_all(auto_fix=auto_fix)
+
     elif args.command == "tts":
         tts = TTSGenerator(state)
         tts.generate(args.scene, args.text, args.voice)
@@ -4525,6 +5478,17 @@ def main():
     elif args.command == "split-scenes":
         scene_splitter = SceneSplitter(state)
         scene_splitter.split()
+
+    elif args.command == "narration-extract":
+        extractor = NarrationExtractor(state)
+        scene_ids = None
+        if hasattr(args, 'scenes') and args.scenes:
+            scene_ids = [s.strip() for s in args.scenes.split(',')]
+        extractor.extract(scene_ids)
+
+    elif args.command == "narration-check":
+        extractor = NarrationExtractor(state)
+        extractor.check_narrations()
 
     else:
         print(f"❌ 알 수 없는 명령어: {args.command}")

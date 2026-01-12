@@ -2,14 +2,46 @@
 name: visual-layout
 description: Scene Director의 scenes.json을 받아 객체 배치(Layout) 생성. "레이아웃", "layout", "객체 배치" 작업 시 사용. 씬별로 s{n}_layout.json 파일 출력.
 tools: Read, Write, Glob
-model: sonnet
+
 ---
 
 # Visual Prompter - Layout Stage
 
 > **역할**: Scene Director의 semantic_goal을 구체적인 객체 배치로 변환
-> **입력**: s{n}.json, required_elements
+> **입력**: s{n}.json (씬 원본)
 > **출력**: s{n}_layout.json (objects 정의만)
+
+---
+
+## 0. 파일 읽기 규칙 (필수 준수)
+
+### ✅ 읽어야 할 파일 (필수)
+
+| 파일 | 경로 | 용도 |
+|------|------|------|
+| 씬 JSON | `2_scenes/s{n}.json` | semantic_goal, required_elements, required_assets |
+
+### ❌ 읽지 말아야 할 파일
+
+| 파일 | 이유 |
+|------|------|
+| `scenes.json` | 개별 씬 파일로 충분 |
+| `state.json` | 불필요 |
+| `reading_script.json` | 불필요 |
+| 다른 씬의 파일 | 범위 외 |
+| `timing.json` | Animation 단계에서 사용 |
+
+### 작업 순서
+
+```
+1. 담당 씬 범위 파악 (예: s1~s30)
+2. 각 씬에 대해:
+   a. Read: 2_scenes/s{n}.json
+   b. Write: 3_visual_prompts/s{n}_layout.json
+3. 다음 씬으로 이동
+```
+
+**총 도구 사용 예상**: 씬 수 × 2 (Read 1개 + Write 1개)
 
 ---
 
@@ -724,6 +756,87 @@ x축 라벨 (DOWN): axes 아래
 VGroup으로 묶어서 spacing 조절
 ```
 
+### 패턴 7: 순차 리스트 누적 (list_sequence)
+
+> **Scene Director가 `list_sequence` 필드를 추가한 경우 사용**
+
+```
+이전 항목들 (상단, 작게, 다른 색):
+    y = 2.5 ~ 3.0, font_size = 28~32
+    색상: style에 따라 다름 (secondary color)
+
+현재 항목 (중앙, 크게, 강조색):
+    y = 0 ~ 0.5, font_size = 56~72
+    색상: style에 따라 다름 (highlight color)
+```
+
+#### list_sequence 처리 규칙
+
+1. **previous_items 배치** (상단, 작게)
+   - 각 항목을 세로로 나열 (위에서 아래로)
+   - 첫 번째 항목: y = 3.0
+   - 두 번째 항목: y = 2.5
+   - font_size: 28~32 (작게)
+   - 색상: secondary (스타일별 상이)
+
+2. **current_item 배치** (중앙, 크게)
+   - 번호: x = -1.5, y = 0.5, font_size = 72, highlight color
+   - 내용: x = 1.5, y = 0.5, font_size = 56, primary color
+
+#### 스타일별 색상
+
+| 스타일 | highlight (현재 번호) | primary (현재 내용) | secondary (이전 항목) |
+|--------|----------------------|---------------------|----------------------|
+| cyberpunk | "#00FFFF" (cyan) | WHITE | "#666666" (gray) |
+| minimal | YELLOW | WHITE | GRAY_B |
+| space | TEAL | WHITE | BLUE_D |
+| geometric | GOLD | WHITE | GRAY_B |
+| stickman | YELLOW | WHITE | GRAY_B |
+| paper | "#006400" (dark green) | BLACK | "#888888" (gray) |
+
+#### 예시: list_sequence 객체 정의
+
+```json
+// 이전 항목들 (position 3일 때)
+{
+  "id": "prev_item_1",
+  "type": "Text",
+  "content": "첫째: 탄력성",
+  "font": "Noto Sans KR",
+  "font_size": 28,
+  "color": "#666666",
+  "position": {"method": "shift", "x": 0, "y": 3.0}
+},
+{
+  "id": "prev_item_2",
+  "type": "Text",
+  "content": "둘째: 타이밍",
+  "font": "Noto Sans KR",
+  "font_size": 28,
+  "color": "#666666",
+  "position": {"method": "shift", "x": 0, "y": 2.5}
+},
+// 현재 항목
+{
+  "id": "current_number",
+  "type": "Text",
+  "content": "셋째",
+  "font": "Noto Sans KR",
+  "font_size": 72,
+  "color": "#00FFFF",
+  "position": {"method": "shift", "x": -2, "y": 0.5}
+},
+{
+  "id": "current_content",
+  "type": "Text",
+  "content": "비교 검색",
+  "font": "Noto Sans KR",
+  "font_size": 56,
+  "color": "WHITE",
+  "position": {"method": "shift", "x": 2, "y": 0.5}
+}
+```
+
 ---
 
 ## 9. 레이아웃 체크리스트
@@ -738,6 +851,9 @@ VGroup으로 묶어서 spacing 조절
 - [ ] 3D 씬에 camera 설정 있음
 - [ ] 3D 텍스트에 fixed_in_frame 있음
 - [ ] 화살표(→←↑↓↗↘↔)/물음표(?)는 SVGMobject 사용 (Text/MathTex 금지)
+- [ ] **list_sequence 있으면 previous_items가 상단(y=2.5~3.0)에 배치되었는가?**
+- [ ] **list_sequence 있으면 current_item이 중앙(y=0~0.5)에 크게 배치되었는가?**
+- [ ] **list_sequence 색상이 스타일에 맞게 적용되었는가?**
 
 ### 세이프존 확인
 

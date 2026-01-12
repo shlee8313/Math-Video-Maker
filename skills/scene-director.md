@@ -17,7 +17,8 @@
 - 필요한 요소(required_elements) 목록화
 - 강조 포인트(wow_moment) 지정
 - 3D 씬 여부 판단
-- 필요한 에셋 목록 작성
+
+> **에셋 설계는 Asset Designer가 담당** (Scene Director 완료 후 순차 실행)
 
 ### Scene Director가 하지 않는 것
 
@@ -29,15 +30,25 @@
 
 ### 입력
 - `1_script/reading_script.json` (읽기용 대본)
-- `1_script/tts_script.json` (TTS용 대본)
 - `state.json` (프로젝트 설정: style, duration, aspect_ratio)
 
-### 출력
-- `output/{project_id}/2_scenes/scenes.json`
+### 출력 (Sub-agents 체계)
+
+> **3개 에이전트가 섹션별로 분담 처리**
+
+| 에이전트 | 담당 섹션 | 출력 파일 |
+|----------|----------|-----------|
+| `scene-director-hook` | Hook + 분석 | `scenes_part1.json` |
+| `scene-director-core` | 핵심수학 | `scenes_part2.json` |
+| `scene-director-outro` | 적용 + 아웃트로 | `scenes_part3.json` |
+
+병합 후 최종 출력:
+- `output/{project_id}/2_scenes/scenes.json` (전체)
+- `output/{project_id}/2_scenes/s1.json`, `s2.json`, ... (개별)
 
 ---
 
-## JSON 출력 형식
+## JSON 출력 형식 (나레이션 3종 통합)
 
 ```json
 [
@@ -45,9 +56,11 @@
     "scene_id": "s1",
     "section": "Hook",
     "duration": 12,
+
     "narration_display": "여러분, √9가 뭔지 아시나요?",
     "subtitle_display": "여러분, √9가 뭔지 아시나요?",
     "narration_tts": "여러분, 루트 구가 뭔지 아시나요?",
+
     "semantic_goal": "호기심 유발 - 제곱근을 질문으로 재정의",
     "required_elements": [
       {"type": "text", "content": "?", "role": "호기심 상징"},
@@ -58,10 +71,12 @@
     "style": "minimal",
     "is_3d": false,
     "scene_class": "Scene",
-    "required_assets": []
+    "camera_settings": null
   }
 ]
 ```
+
+> **참고**: `required_assets`는 Asset Designer가 후속 작성
 
 ---
 
@@ -72,9 +87,9 @@
 | `scene_id` | string | s1, s2, s3... |
 | `section` | string | Hook/분석/핵심수학/적용/아웃트로 |
 | `duration` | number | 예상 길이 (초) |
-| `narration_display` | string | 화면 자막용 (숫자/기호 형식) |
-| `subtitle_display` | string | 자막 분할용 (`;;`로 분할 위치 표시) |
-| `narration_tts` | string | TTS 음성용 (한글 발음) |
+| `narration_display` | string | 대본 원문 그대로 복사 |
+| `subtitle_display` | string | 자막용 (`;; `로 분할) |
+| `narration_tts` | string | TTS 발음용 (한글 발음) |
 | `semantic_goal` | string | 씬의 목적 |
 | `required_elements` | array | 필요한 요소 목록 |
 | `wow_moment` | string/null | 강조 포인트 |
@@ -82,61 +97,30 @@
 | `style` | string | 프로젝트 스타일 |
 | `is_3d` | boolean | 3D 씬 여부 |
 | `scene_class` | string | Scene / ThreeDScene |
-| `required_assets` | array | 필요한 PNG 에셋 |
+| `camera_settings` | object/null | 3D 씬 카메라 설정 (is_3d: true일 때 필수) |
 
 ---
 
-## 나레이션 3종 필드
+## 나레이션 3종 (TTS는 대본에서 추출)
 
-| 필드 | 용도 | 작성 방식 |
-|------|------|-----------|
-| `narration_display` | 화면 표시 원문 | 자연스러운 문장 |
-| `subtitle_display` | 자막 분할용 | `;;`로 분할 위치 표시 |
-| `narration_tts` | TTS 음성용 | `,` 쉼표 = 짧은 쉼, `...` = 긴 쉼, **`.` 마침표 금지** |
+> **Scene Director는 TTS를 직접 생성하지 않습니다!**
+> Script Writer가 대본 작성 시 `tts` 필드를 함께 작성합니다.
+> Scene Director는 씬 분할에 맞게 배치만 합니다.
 
----
+| 필드 | 용도 | 출처 |
+|------|------|------|
+| `narration_display` | 대본 원문 | 대본 `content`에서 해당 구간 추출 |
+| `subtitle_display` | 자막 (30자 초과 시 `;;` 삽입) | narration_display를 분할 |
+| `narration_tts` | TTS 발음 (마침표 금지) | **대본 `tts`에서 해당 구간 추출** |
 
-## subtitle_display 규칙 (자막 분할)
+### narration_display
 
-> **핵심**: `narration_display`를 의미 단위로 분할하여 `;;` 삽입. Python은 `;;` 기준으로 SRT 생성.
+> **대본 `content`에서 해당 구간을 그대로 복사합니다.**
 
-### 분할 금지 패턴
+### narration_tts
 
-| 금지 | 예시 |
-|------|------|
-| 수식 내부 | `V(s, t)` 내부 쉼표에서 분할 ❌ |
-| 따옴표+조사 | `"말"` / `는 사실` ❌ |
-| 콜론+10자미만 | `시간:` / `2시` ❌ |
-| 5자 미만 자막 | `자,` 혼자 ❌ |
-
-### 분할 허용 조건
-
-> **분할점 앞뒤 모두 10자 이상 + 의미 완결 시에만**
-
-| 우선순위 | 위치 | 예시 |
-|----------|------|------|
-| 1 | 마침표(.) 뒤 | `사실일까요?;;항공사는...` |
-| 2 | "첫 번째/두 번째" 앞 | 나열 구조 |
-| 3 | 콜론(:) 뒤 (15자 이상) | `합치면:;;dΠ/dp = ...` |
-| 4 | 완전한 절 경계 | 주어+서술 완결 후 |
-| 5 | 목적어 조사 앞 | `시나리오의;;기대값을...` |
-
-### 길이 가이드
-
-| 구분 | 길이 |
-|------|------|
-| 최대 | 35자 (초과 시 분할 검토) |
-| 목표 | 15~30자 |
-| 최소 | 10자 |
-
-### 예시
-
-```json
-{
-  "narration_display": "\"쿠키 삭제하면 싸진다\"는 말, 사실일까요? 항공사는 당신의 지갑 속을 들여다보고 있습니다.",
-  "subtitle_display": "\"쿠키 삭제하면 싸진다\"는 말, 사실일까요?;;항공사는 당신의 지갑 속을 들여다보고 있습니다."
-}
-```
+> ⚠️ **직접 생성 금지!** 대본의 `tts` 필드에서 해당 구간을 추출하여 배치합니다.
+> Script Writer가 이미 숫자/기호를 한글 발음으로 변환해 두었습니다.
 
 ---
 
@@ -164,6 +148,7 @@
 | arrow | `{"type": "arrow", "role": "연결선"}` | Manim Arrow |
 | icon | `{"type": "icon", "asset": "arrow_right", "role": "역할"}` | SVG 에셋 |
 | 3d_object | `{"type": "3d_object", "shape": "cube", "role": "역할"}` | |
+| **highlight** | `{"type": "highlight", "target": "좌변", "role": "강조"}` | **수식 부분 강조** |
 
 ### 🔴 아이콘은 반드시 별도 요소로 분리
 
@@ -211,28 +196,6 @@
 
 ---
 
-## required_assets 작성법
-
-```json
-"required_assets": [
-  {
-    "category": "characters",
-    "filename": "stickman_confused",
-    "description": "혼란스러운 표정의 졸라맨",
-    "usage": "화면 왼쪽에 배치"
-  }
-]
-```
-
-| 필드 | 설명 |
-|------|------|
-| category | characters / objects / icons |
-| filename | 파일명 (**확장자 제외**) |
-| description | 에셋 설명 |
-| usage | 사용 용도 |
-
----
-
 ## 씬 분할 원칙
 
 ### 분할 기준 (우선순위)
@@ -261,29 +224,136 @@
 // ✅ s41은 새로운 내용으로 시작
 ```
 
-### 🔴 등식 좌변/우변 분할 금지
+### 🔴 핵심 등식 연속성 유지 (매우 중요!)
 
-> `A = B` 등식을 "왼쪽 설명" / "오른쪽 설명"으로 별도 씬 분리 금지
+> **한번 등장한 핵심 등식은 이후 씬에서도 계속 화면에 유지해야 함**
+> 좌변/우변을 설명할 때 식을 분리하지 말고, 전체 등식을 유지하면서 부분 강조
 
-**올바른 방법**: 하나의 씬에서 부분 강조 (highlight 타입 사용)
+#### ❌ 잘못된 예 (식 분리)
+
+나레이션: "왼쪽을 볼까요? ... 오른쪽은?"
 
 ```json
+// s55: 등식 완성
+{"type": "math", "content": "\\frac{p-MC}{p} = \\frac{1}{E_d}", "role": "러너 지수"}
+
+// s57: ❌ 좌변만 표시 (등식이 사라짐!)
+{"type": "math", "content": "\\frac{p-MC}{p}", "role": "마크업 비율"}
+
+// s58: ❌ 우변만 표시 (등식이 사라짐!)
+{"type": "math", "content": "\\frac{1}{E_d}", "role": "탄력성 역수"}
+```
+
+**문제점**: 시청자가 전체 등식을 잊어버림, 좌우 관계가 끊어짐
+
+#### ✅ 올바른 예 (등식 유지 + 부분 강조)
+
+```json
+// s55: 등식 완성
 {
   "required_elements": [
-    {"type": "math", "content": "\\frac{p-MC}{p} = \\frac{1}{E_d}", "role": "전체 공식"},
-    {"type": "highlight", "target": "좌변", "timing": "first_half"},
-    {"type": "highlight", "target": "우변", "timing": "second_half"}
+    {"type": "math", "content": "\\frac{p-MC}{p} = \\frac{1}{E_d}", "role": "러너 지수"}
+  ],
+  "wow_moment": "러너 지수가 완성되는 순간"
+}
+
+// s56: 등식 위에 이름 표시
+{
+  "required_elements": [
+    {"type": "math", "content": "\\frac{p-MC}{p} = \\frac{1}{E_d}", "role": "러너 지수"},
+    {"type": "text", "content": "Lerner Index", "role": "식 이름 (등식 위에)"}
+  ]
+}
+
+// s57: 전체 등식 유지 + 좌변 강조
+{
+  "required_elements": [
+    {"type": "math", "content": "\\frac{p-MC}{p} = \\frac{1}{E_d}", "role": "러너 지수 전체"},
+    {"type": "highlight", "target": "좌변", "role": "마크업 비율 강조"},
+    {"type": "text", "content": "기업의 배짱", "role": "좌변 해석 (좌변 아래)"}
+  ]
+}
+
+// s58: 전체 등식 유지 + 우변 강조
+{
+  "required_elements": [
+    {"type": "math", "content": "\\frac{p-MC}{p} = \\frac{1}{E_d}", "role": "러너 지수 전체"},
+    {"type": "highlight", "target": "우변", "role": "탄력성 역수 강조"},
+    {"type": "text", "content": "고객의 고집", "role": "우변 해석 (우변 아래)"}
   ]
 }
 ```
+
+**핵심 원칙**:
+1. 등식이 완성되면 **이후 씬에서도 전체 등식 유지**
+2. "왼쪽", "오른쪽" 설명 시 **highlight로 부분 강조** (식 분리 X)
+3. 해석 텍스트는 **해당 부분 아래에 배치** (식 대체 X)
+
+#### 식 유지가 필요한 상황
+
+| 나레이션 패턴 | 식 유지? | 처리 방법 |
+|--------------|----------|----------|
+| "왼쪽/오른쪽을 볼까요" | ✅ 필수 | highlight로 부분 강조 |
+| "예를 들어볼까요" | ✅ 필수 | 식은 상단 유지, 예시는 하단 |
+| "이런 고객은 ~합니다" | ✅ 필수 | 식 + 개념 텍스트 함께 |
+| "정리하면" | ✅ 필수 | 식 + 요약 텍스트 |
+| (완전히 새 주제/새 식 도입) | ❌ | 새 식으로 전환 |
+
+#### 예시 설명 패턴 (식 유지 필수)
+
+```json
+// s13: 탄력성 식 정의
+{
+  "required_elements": [
+    {"type": "math", "content": "E_d = \\frac{|\\%\\Delta Q|}{|\\%\\Delta P|}", "role": "탄력성 식"}
+  ]
+}
+
+// s14: "예를 들어볼까요?" - 식 유지!
+{
+  "required_elements": [
+    {"type": "math", "content": "E_d = \\frac{|\\%\\Delta Q|}{|\\%\\Delta P|}", "role": "탄력성 식 (상단 유지)"},
+    {"type": "text", "content": "예시", "role": "섹션 전환"}
+  ]
+}
+
+// s15: 출장객 예시 - 식 유지!
+{
+  "required_elements": [
+    {"type": "math", "content": "E_d = \\frac{|\\%\\Delta Q|}{|\\%\\Delta P|}", "role": "탄력성 식 (상단 유지)"},
+    {"type": "text", "content": "출장객", "role": "예시 캐릭터"},
+    {"type": "text", "content": "+10% → 구매", "role": "행동 패턴"}
+  ]
+}
+
+// s16: 개념 정리 - 식 유지!
+{
+  "required_elements": [
+    {"type": "math", "content": "E_d = \\frac{|\\%\\Delta Q|}{|\\%\\Delta P|}", "role": "탄력성 식 (상단 유지)"},
+    {"type": "text", "content": "탄력성 낮음 = 가격 둔감", "role": "개념 정리"}
+  ]
+}
+```
+
+> **Visual Prompter 처리**: role에 "(상단 유지)"가 있으면 식을 화면 상단에 고정 배치
+
+#### highlight 타입 사용법
+
+```json
+{"type": "highlight", "target": "좌변", "role": "강조할 부분"}
+{"type": "highlight", "target": "우변", "role": "강조할 부분"}
+{"type": "highlight", "target": "등호", "role": "등호 강조"}
+```
+
+> Visual Prompter가 highlight를 박스/색상 변경/글로우 등으로 구현
 
 ### 긴 수식 씬 분할 규칙
 
 | 씬 길이 | 조치 |
 |---------|------|
 | 20초 이하 | 유지 |
-| 25초 이상 | 분할 권장 |
-| 35초 이상 | 분할 필수 |
+| 35초 이상 | 분할 권장 |
+| 40초 이상 | 분할 필수 |
 
 ### 섹션 전환 브릿지
 
@@ -294,39 +364,36 @@
 
 ---
 
-## 수학 표기 명확화
 
-절댓값, 부호 등 혼란 가능한 표기는 TTS에 설명 포함:
 
-| 표기 | TTS 설명 |
-|------|----------|
-| `\|E_d\|` | "수요곡선 우하향 → 음수 → 절댓값으로 양수화" |
-| `dP/dQ < 0` | "가격 올리면 수요 줄어드니까 음수" |
-| `λ (람다)` | "제약 완화 시 추가 이윤, 그림자 가격" |
+### 🔴 영상 길이별 총 씬 수 가이드
 
----
+> **이 가이드를 반드시 준수하세요!** 씬이 너무 많으면 영상이 산만해집니다.
 
-## 씬 길이 가이드
+| 영상 길이 | 권장 씬 수 | 평균 씬 길이 |
+|-----------|-----------|-------------|
+| 2분 (120초) | **8~10개** | 12~15초 |
+| 5분 (300초) | **20~25개** | 12~15초 |
+| 8분 (480초) | **30~35개** | 13~16초 |
+| 10분 (600초) | **40~50개** | 12~15초 |
+| 15분 (900초) | **55~70개** | 13~16초 |
+| 20분 (1200초) | **75~90개** | 13~16초 |
 
-| 구분 | 시간 |
-|------|------|
-| 최소 | 5초 |
-| 최적 | 10~20초 |
-| 최대 | 30초 |
+### 섹션별 비율 가이드
 
-### 섹션별 가이드
-
-| 섹션 | 권장 씬 수 | 평균 길이 |
-|------|-----------|----------|
-| Hook | 1~2개 | 5~10초 |
-| 분석 | 2~4개 | 10~15초 |
-| 핵심수학 | 3~6개 | 15~20초 |
-| 적용 | 1~3개 | 10~15초 |
-| 아웃트로 | 1개 | 5~10초 |
+| 섹션 | 비율 | 10분 영상 기준 |
+|------|------|---------------|
+| Hook | 5% | 2~3개 |
+| 분석 | 20% | 8~10개 |
+| 핵심수학 | 45% | 18~22개 |
+| 적용 | 25% | 10~12개 |
+| 아웃트로 | 5% | 2~3개 |
 
 ---
 
 ## 3D 씬 판단
+
+### 3D 키워드표
 
 | 키워드 | is_3d | scene_class |
 |--------|-------|-------------|
@@ -335,8 +402,54 @@
 | 구, 공, 지구본 | true | ThreeDScene |
 | 원뿔, 고깔 | true | ThreeDScene |
 | 부피, cm³, 세제곱 | true | ThreeDScene |
+| **3D, 입체, 회전** | true | ThreeDScene |
+| **표면적, 전개도** | true | ThreeDScene |
 | 사각형, 원, 삼각형 | false | Scene |
 | 그래프, 좌표 | false | Scene |
+
+### 판단 흐름도
+
+```
+대본 키워드 분석
+    ↓
+"정육면체/큐브/상자" → is_3d: true, shape: "cube"
+"원기둥/캔/병" → is_3d: true, shape: "cylinder"
+"구/공" → is_3d: true, shape: "sphere"
+"3D/입체/회전" → is_3d: true
+"표면적/전개도" → is_3d: true
+"부피/cm³" → 맥락상 3D 여부 확인
+    ↓ (3D 키워드 없으면)
+is_3d: false, scene_class: "Scene"
+```
+
+### camera_settings (Visual Prompter 담당)
+
+> ⚠️ **역할 분리**: Scene Director는 `is_3d` 판단만, `camera_settings`는 **Visual Prompter가 채웁니다.**
+
+**Scene Director 출력:**
+```json
+{
+  "is_3d": true,
+  "scene_class": "ThreeDScene",
+  "camera_settings": null
+}
+```
+
+**Visual Prompter가 채운 후:**
+```json
+{
+  "is_3d": true,
+  "scene_class": "ThreeDScene",
+  "camera_settings": {
+    "phi": 75,
+    "theta": -30,
+    "zoom": 0.8,
+    "movement": "rotate"
+  }
+}
+```
+
+> 참고: camera_settings 상세 규칙은 `skills/visual-prompter-layout.md` 참조
 
 ---
 
@@ -403,51 +516,14 @@
 
 ---
 
-## 복잡한 수식 TTS 처리
-
-| 등급 | 기준 | TTS 처리 |
-|------|------|----------|
-| A (간단) | 변수 2개, 연산 1개 | 음성으로 읽기 |
-| B (중간) | 변수 3-4개, 연산 2-3개 | 의미 해설로 대체 |
-| C (복잡) | 분수/미분/다단계 | 화면 집중 + 해설 |
-
-### A등급 예시
-```json
-"narration_tts": "총수입 티알은, 가격 피 곱하기 판매량 큐입니다."
-```
-
-### B등급 예시 (의미 해설)
-```json
-"narration_tts": "탄력성 이디는, 가격 변화율 대비 판매량 변화율의 비율입니다."
-```
-
-### C등급 예시 (화면 집중)
-```json
-"narration_tts": "오른쪽 항에서 피를 묶어내면, 괄호 안에 흥미로운 구조가 나타납니다. 보이시나요?"
-```
-
-### 화면 집중 유도 문장 템플릿
-
-| 용도 | 문장 |
-|------|------|
-| 집중 | "화면을 주목해주세요." |
-| 전환 | "자, 여기서 흥미로운 일이 벌어집니다." |
-| 발견 | "보이시나요? 숨어있던 패턴이 드러납니다." |
-| 감탄 | "놀랍죠?" / "바로 이겁니다." |
-
----
-
 ## 금지 사항 요약
 
-| 항목 | ❌ 금지 | ✅ 올바름 |
-|------|--------|----------|
+| 항목 | 금지 | 올바름 |
+|------|------|--------|
 | semantic_goal | "수식 보여주기" | "인수분해 과정 단계별 시각화" |
 | required_elements | 빈 배열 `[]` | 최소 1개 요소 |
 | role | 누락 | 반드시 포함 |
 | 3D 객체 | `is_3d: false` | `is_3d: true, scene_class: ThreeDScene` |
-| narration_display | 한글 발음 | 숫자/기호 형식 |
-| narration_tts | 숫자/기호 | 한글 발음 |
-| narration_tts | 마침표(.) | 줄임표(...) |
 | 좌표 지정 | `"x": -2.5` | Visual Prompter 담당 |
 | 애니메이션 | `"type": "FadeIn"` | Visual Prompter 담당 |
 
@@ -458,7 +534,7 @@
 ### 기본
 - [ ] 모든 씬에 고유한 scene_id (s1, s2...)
 - [ ] duration이 5~30초 범위
-- [ ] narration_display는 숫자/기호, narration_tts는 한글 발음
+- [ ] narration_display가 대본 원문과 일치
 
 ### 의미 구조
 - [ ] semantic_goal이 "왜 이 씬이 필요한가"에 답함
@@ -467,7 +543,7 @@
 
 ### 3D/에셋
 - [ ] 3D 키워드 씬에 is_3d: true, scene_class: ThreeDScene
-- [ ] 캐릭터/물체 씬에 required_assets 포함
+- [ ] **3D 씬에 camera_settings 포함** (없으면 평면처럼 보임!)
 
 ---
 
@@ -481,9 +557,6 @@
   "section": "핵심수학",
   "duration": 18,
   "narration_display": "x² + 2x + 1을 인수분해하면 (x+1)²이 됩니다.",
-  "subtitle_display": "x² + 2x + 1을 인수분해하면;;(x+1)²이 됩니다.",
-  "narration_tts": "엑스 제곱 더하기 이 엑스 더하기 일을, 인수분해하면, 엑스 더하기 일의 제곱이 됩니다.",
-
   "semantic_goal": "완전제곱식 인수분해 과정 시각화",
   "required_elements": [
     { "type": "math", "content": "x^2 + 2x + 1", "role": "원본 수식" },
@@ -495,9 +568,11 @@
   "style": "minimal",
   "is_3d": false,
   "scene_class": "Scene",
-  "required_assets": []
+  "camera_settings": null
 }
 ```
+
+> **참고**: `required_assets`는 Asset Designer가 후속 작성
 
 ### 예시 2: 캐릭터 + 수식 혼합 씬
 
@@ -507,9 +582,6 @@
   "section": "분석",
   "duration": 15,
   "narration_display": "마트에서 익숙한 과자를 집어들었는데, 뭔가 이상합니다.",
-  "subtitle_display": "마트에서 익숙한 과자를 집어들었는데,;;뭔가 이상합니다.",
-  "narration_tts": "마트에서, 익숙한 과자를 집어들었는데, 뭔가 이상합니다...",
-
   "semantic_goal": "일상에서 발견한 이상함으로 호기심 유발",
   "required_elements": [
     { "type": "image", "asset": "stickman_confused", "role": "혼란스러운 소비자" },
@@ -521,20 +593,7 @@
   "style": "stickman",
   "is_3d": false,
   "scene_class": "Scene",
-  "required_assets": [
-    {
-      "category": "characters",
-      "filename": "stickman_confused",
-      "description": "혼란스러운 표정의 졸라맨",
-      "usage": "화면 왼쪽에 배치"
-    },
-    {
-      "category": "objects",
-      "filename": "snack_bag_normal",
-      "description": "일반 크기 과자봉지",
-      "usage": "캐릭터 오른쪽에 배치"
-    }
-  ]
+  "camera_settings": null
 }
 ```
 
@@ -546,9 +605,6 @@
   "section": "핵심수학",
   "duration": 20,
   "narration_display": "가격은 그대로인데, 용량이 줄었습니다. 100g → 80g",
-  "subtitle_display": "가격은 그대로인데, 용량이 줄었습니다.;;100g → 80g",
-  "narration_tts": "가격은 그대로인데, 용량이 줄었습니다. 백 그램에서, 팔십 그램으로.",
-
   "semantic_goal": "용량 감소를 시각적으로 대비시켜 충격 주기",
   "required_elements": [
     { "type": "image", "asset": "snack_bag_normal", "role": "비교 대상 A (Before)" },
@@ -562,20 +618,7 @@
   "style": "stickman",
   "is_3d": false,
   "scene_class": "Scene",
-  "required_assets": [
-    {
-      "category": "objects",
-      "filename": "snack_bag_normal",
-      "description": "일반 크기 과자봉지",
-      "usage": "화면 왼쪽 (Before)"
-    },
-    {
-      "category": "objects",
-      "filename": "snack_bag_shrunk",
-      "description": "줄어든 과자봉지",
-      "usage": "화면 오른쪽 (After)"
-    }
-  ]
+  "camera_settings": null
 }
 ```
 
@@ -587,9 +630,6 @@
   "section": "핵심수학",
   "duration": 22,
   "narration_display": "정육면체의 부피는 한 변의 길이를 세 번 곱한 것입니다. V = a³",
-  "subtitle_display": "정육면체의 부피는;;한 변의 길이를 세 번 곱한 것입니다.;;V = a³",
-  "narration_tts": "정육면체의 부피는, 한 변의 길이를 세 번 곱한 것입니다. 브이는, 에이의 세제곱.",
-
   "semantic_goal": "정육면체 부피 공식의 직관적 이해",
   "required_elements": [
     { "type": "text", "content": "정육면체의 부피", "role": "제목" },
@@ -603,9 +643,16 @@
   "style": "minimal",
   "is_3d": true,
   "scene_class": "ThreeDScene",
-  "required_assets": []
+  "camera_settings": {
+    "phi": 75,
+    "theta": -45,
+    "zoom": 0.8,
+    "movement": "rotate"
+  }
 }
 ```
+
+> ⚠️ **3D 씬 필수**: `camera_settings`가 없으면 평면처럼 보입니다!
 
 ### 예시 5: 깨달음/결론 씬
 
@@ -615,9 +662,6 @@
   "section": "적용",
   "duration": 12,
   "narration_display": "바로 이거야! 슈링크플레이션의 수학적 본질입니다.",
-  "subtitle_display": "바로 이거야!;;슈링크플레이션의 수학적 본질입니다.",
-  "narration_tts": "바로 이거야! 슈링크플레이션의, 수학적 본질입니다.",
-
   "semantic_goal": "핵심 개념 정리 및 깨달음 표현",
   "required_elements": [
     { "type": "image", "asset": "stickman_happy", "role": "깨달은 캐릭터" },
@@ -630,20 +674,7 @@
   "style": "stickman",
   "is_3d": false,
   "scene_class": "Scene",
-  "required_assets": [
-    {
-      "category": "characters",
-      "filename": "stickman_happy",
-      "description": "기쁜 표정의 졸라맨",
-      "usage": "화면 중앙"
-    },
-    {
-      "category": "icons",
-      "filename": "lightbulb",
-      "description": "전구 아이콘",
-      "usage": "캐릭터 머리 위"
-    }
-  ]
+  "camera_settings": null
 }
 ```
 
@@ -655,9 +686,6 @@
   "section": "핵심수학",
   "duration": 25,
   "narration_display": "이차함수 y = x²의 그래프를 그려봅시다.",
-  "subtitle_display": "이차함수 y = x²의;;그래프를 그려봅시다.",
-  "narration_tts": "이차함수, 와이는 엑스 제곱의, 그래프를 그려봅시다.",
-
   "semantic_goal": "이차함수 그래프의 형태와 특성 시각화",
   "required_elements": [
     { "type": "graph", "function": "x^2", "role": "이차함수 그래프" },
@@ -671,28 +699,40 @@
   "style": "minimal",
   "is_3d": false,
   "scene_class": "Scene",
-  "required_assets": []
+  "camera_settings": null
 }
 ```
 
 ---
 
-## 작업 흐름 요약
+## 작업 흐름 요약 (Sub-agents 체계)
 
 ```
 1. 입력 확인
-   ├── 읽기용 대본
-   ├── TTS용 대본
+   ├── 읽기용 대본 (reading_script.json)
+   │   ├── content: 읽기용 원문
+   │   └── tts: TTS 발음 (Script Writer가 작성)
    └── 프로젝트 설정 (style, duration)
 
-2. 씬 분할 작업
+2. 씬 분할 작업 (3개 에이전트가 섹션별 분담)
    ├── 대본을 씬으로 분할
+   ├── 나레이션 3종 배치:
+   │   ├── narration_display (대본 content에서 추출)
+   │   ├── subtitle_display (;; 삽입)
+   │   └── narration_tts (대본 tts에서 추출 - 직접 생성 X!)
    ├── semantic_goal 정의
    ├── required_elements 목록화
    ├── wow_moment 배치
-   ├── is_3d 판단
-   └── required_assets 생성
+   └── is_3d 판단
 
 3. 출력
-   └── output/{project_id}/2_scenes/scenes.json
+   ├── scenes_part1.json (Hook + 분석)
+   ├── scenes_part2.json (핵심수학)
+   └── scenes_part3.json (적용 + 아웃트로)
+
+4. 병합 (python math_video_pipeline.py merge-scenes)
+   ├── scenes.json (전체)
+   └── s1.json, s2.json, ... (개별)
 ```
+
+> ⚠️ **TTS 직접 생성 금지!** Script Writer가 작성한 `tts` 필드를 씬 분할에 맞게 배치만 함

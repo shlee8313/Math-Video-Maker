@@ -2,7 +2,8 @@
 name: visual-review
 description: 생성된 visual.json 파일의 오류 검출 및 자동 수정. "검증", "review", "리뷰" 작업 시 사용. s{n}_visual.json을 검증하고 수정된 파일 출력.
 tools: Read, Write, Glob
-model: sonnet
+
+
 ---
 
 # Visual Prompter - Review Stage
@@ -10,6 +11,39 @@ model: sonnet
 > **역할**: 생성된 visual.json의 오류 검출 및 수정
 > **입력**: s{n}_visual.json
 > **출력**: 검증된 s{n}_visual.json
+
+---
+
+## 0. 파일 읽기 규칙 (필수 준수)
+
+### ✅ 읽어야 할 파일 (필수)
+
+| 파일 | 경로 | 용도 |
+|------|------|------|
+| visual.json | `3_visual_prompts/s{n}_visual.json` | 검증 대상 |
+
+### ❌ 읽지 말아야 할 파일
+
+| 파일 | 이유 |
+|------|------|
+| `s{n}.json` (씬 원본) | Review 단계에서 불필요 |
+| `s{n}_layout.json` | visual.json에 이미 포함됨 |
+| `scenes.json` | 불필요 |
+| `state.json` | 불필요 |
+| `timing.json` | 불필요 |
+
+### 작업 순서
+
+```
+1. 담당 씬 범위 파악 (예: s31~s46)
+2. 각 씬에 대해:
+   a. Read: 3_visual_prompts/s{n}_visual.json
+   b. 검증 수행
+   c. 오류 있으면 Write: 3_visual_prompts/s{n}_visual.json (수정)
+3. 다음 씬으로 이동
+```
+
+**총 도구 사용 예상**: 씬 수 × 1~2 (Read 1개 + 오류 시 Write 1개)
 
 ---
 
@@ -434,6 +468,51 @@ Hook 섹션:
 □ Before 왼쪽, After 오른쪽
 □ 화살표 또는 시각적 연결
 □ 대비되는 색상 사용
+```
+
+### 순차 리스트 패턴 (list_sequence)
+
+> **Scene Director가 `list_sequence` 필드를 추가한 경우 검증**
+
+```
+□ previous_items 개수 = list_sequence.previous_items.length
+□ 이전 항목들이 상단에 배치 (y = 2.5 ~ 3.0)
+□ 현재 항목이 중앙에 배치 (y = 0 ~ 0.5)
+□ 이전 항목 font_size < 현재 항목 font_size
+□ 이전 항목 색상 ≠ 현재 항목 색상 (secondary vs highlight)
+```
+
+#### list_sequence 검증 체크리스트
+
+| 검증 항목 | 조건 | 오류 시 |
+|----------|------|--------|
+| previous_items 객체 존재 | position > 1이면 prev_item_* 있어야 함 | ERROR |
+| 이전 항목 위치 | y >= 2.5 | WARN → 자동 수정 |
+| 현재 항목 위치 | y <= 1.0 | WARN → 자동 수정 |
+| 크기 차이 | prev font_size < current font_size | WARN |
+| 색상 차이 | prev color ≠ current_number color | WARN |
+
+#### list_sequence 자동 수정 규칙
+
+```
+입력: list_sequence.position = 2, prev_item_1이 y = 1.5에 배치
+수정: prev_item_1의 y를 3.0으로 조정
+사유: 이전 항목은 상단(y >= 2.5)에 있어야 함
+```
+
+```
+입력: current_number가 y = 2.0에 배치
+수정: current_number의 y를 0.5로 조정
+사유: 현재 항목은 중앙(y <= 1.0)에 있어야 함
+```
+
+#### list_sequence 애니메이션 검증
+
+```
+□ 이전 항목들 애니메이션: FadeIn (빠르게, run_time <= 0.5)
+□ 현재 번호 애니메이션: GrowFromCenter 권장
+□ 이전 항목이 현재 항목보다 먼저 등장
+□ 이전 항목들이 거의 동시에 등장 (AnimationGroup 또는 연속)
 ```
 
 ---

@@ -2,7 +2,8 @@
 name: visual-animation
 description: Layout JSON에 애니메이션 시퀀스 추가. "애니메이션", "animation", "시퀀스" 작업 시 사용. s{n}_layout.json + timing.json을 받아 s{n}_visual.json 출력.
 tools: Read, Write, Glob
-model: sonnet
+
+
 ---
 
 # Visual Prompter - Animation Stage
@@ -10,6 +11,40 @@ model: sonnet
 > **역할**: Layout의 객체들에 시간순 애니메이션 시퀀스 추가
 > **입력**: s{n}_layout.json, s{n}_timing.json
 > **출력**: s{n}_visual.json (objects + sequence 완성)
+
+---
+
+## 0. 파일 읽기 규칙 (필수 준수)
+
+### ✅ 읽어야 할 파일 (필수)
+
+| 파일 | 경로 | 용도 |
+|------|------|------|
+| layout.json | `3_visual_prompts/s{n}_layout.json` | objects 배열 |
+| timing.json | `0_audio/s{n}_timing.json` | 나레이션 타이밍 |
+
+### ❌ 읽지 말아야 할 파일
+
+| 파일 | 이유 |
+|------|------|
+| `s{n}.json` (씬 원본) | Layout이 이미 처리함 |
+| `scenes.json` | 불필요 |
+| `state.json` | 불필요 |
+| `reading_script.json` | 불필요 |
+| 다른 씬의 파일 | 범위 외 |
+
+### 작업 순서
+
+```
+1. 담당 씬 범위 파악 (예: s31~s46)
+2. 각 씬에 대해:
+   a. Read: 3_visual_prompts/s{n}_layout.json
+   b. Read: 0_audio/s{n}_timing.json
+   c. Write: 3_visual_prompts/s{n}_visual.json
+3. 다음 씬으로 이동
+```
+
+**총 도구 사용 예상**: 씬 수 × 3 (Read 2개 + Write 1개)
 
 ---
 
@@ -559,6 +594,79 @@ model: sonnet
 }
 ```
 
+### 패턴 8: 순차 리스트 누적 (list_sequence)
+
+> **Scene Director가 `list_sequence` 필드를 추가한 경우 사용**
+
+#### 첫 번째 항목 (position = 1)
+
+```json
+{
+  "step": 1,
+  "time_range": [0, 3.0],
+  "actions": [
+    {"type": "GrowFromCenter", "target": "current_number", "run_time": 0.6},
+    {"type": "FadeIn", "target": "current_content", "shift": "RIGHT", "run_time": 0.5}
+  ],
+  "purpose": "첫 번째 항목 등장"
+}
+```
+
+#### 두 번째 이후 항목 (position >= 2)
+
+> **이전 항목은 이미 상단에 배치되어 있으므로 FadeIn만**
+
+```json
+{
+  "step": 1,
+  "time_range": [0, 4.0],
+  "actions": [
+    {
+      "type": "AnimationGroup",
+      "animations": [
+        {"type": "FadeIn", "target": "prev_item_1", "run_time": 0.3}
+      ],
+      "lag_ratio": 0
+    },
+    {"type": "GrowFromCenter", "target": "current_number", "run_time": 0.6},
+    {"type": "FadeIn", "target": "current_content", "shift": "RIGHT", "run_time": 0.5}
+  ],
+  "purpose": "이전 항목 상단 표시 + 현재 항목 중앙 등장"
+}
+```
+
+#### 세 번째 이후 항목 (position >= 3)
+
+```json
+{
+  "step": 1,
+  "time_range": [0, 4.0],
+  "actions": [
+    {
+      "type": "AnimationGroup",
+      "animations": [
+        {"type": "FadeIn", "target": "prev_item_1", "run_time": 0.3},
+        {"type": "FadeIn", "target": "prev_item_2", "run_time": 0.3}
+      ],
+      "lag_ratio": 0.1
+    },
+    {"type": "GrowFromCenter", "target": "current_number", "run_time": 0.6},
+    {"type": "FadeIn", "target": "current_content", "shift": "RIGHT", "run_time": 0.5}
+  ],
+  "purpose": "이전 항목들 상단 표시 + 현재 항목 중앙 등장"
+}
+```
+
+#### list_sequence 애니메이션 규칙
+
+| 요소 | 애니메이션 | run_time |
+|------|-----------|----------|
+| 이전 항목들 (prev_item_*) | FadeIn (동시에) | 0.3 |
+| 현재 번호 (current_number) | GrowFromCenter | 0.5~0.6 |
+| 현재 내용 (current_content) | FadeIn (shift: RIGHT) | 0.4~0.5 |
+
+> **핵심**: 이전 항목들은 빠르게 나타나고, 현재 항목은 강조되게 등장
+
 ---
 
 ## 6. wait 태그 규칙
@@ -603,6 +711,12 @@ model: sonnet
 
 - [ ] camera 이동 애니메이션 있으면 run_time 충분
 - [ ] Rotate 각도와 축 올바름
+
+### list_sequence 확인
+
+- [ ] **list_sequence 있으면 이전 항목들이 FadeIn으로 등장하는가?**
+- [ ] **list_sequence 있으면 현재 항목이 GrowFromCenter로 강조되는가?**
+- [ ] **이전 항목들과 현재 항목의 등장 순서가 올바른가?**
 
 ---
 

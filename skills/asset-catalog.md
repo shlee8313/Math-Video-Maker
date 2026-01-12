@@ -3,8 +3,8 @@
 > 이 파일은 `asset-sync` 실행 시 Supabase에서 자동 생성됩니다.
 > 수동으로 수정하지 마세요.
 
-**마지막 업데이트**: 2026-01-07 21:52:20
-**총 에셋 수**: 82개
+**마지막 업데이트**: 2026-01-12 09:31:43
+**총 에셋 수**: 101개
 
 ---
 
@@ -13,7 +13,13 @@
 | 파일명 | 설명 | 크기 | 태그 |
 |--------|------|------|------|
 | `pigou_silhouette.png` | characters asset: pigou_silhouette.png | 328x907 | characters, pigou_silhouette |
+| `stickman_business.png` | characters asset: stickman_business.png | 380x982 | characters, stickman_business |
+| `stickman_casual.png` | characters asset: stickman_casual.png | 304x940 | characters, stickman_casual |
 | `stickman_confident.png` | characters asset: stickman_confident.png | 388x919 | characters, stickman_confident |
+| `stickman_explaining.png` | 설명하는 캐릭터 | 749x1073 |  |
+| `stickman_happy.png` | 유연한 여행자 | 527x782 |  |
+| `stickman_neutral.png` | characters asset: stickman_neutral.png | 383x915 | characters, stickman_neutral |
+| `stickman_pointing.png` | 설명하는 캐릭터 | 446x933 |  |
 | `stickman_rushing.png` | characters asset: stickman_rushing.png | 743x898 | characters, stickman_rushing |
 | `stickman_surprised.png` | objects asset:stickman_surprised. | 728x1024 | character, stickman, emotion |
 | `stickman_thinking.png` | characters asset: stickman_thinking.png | 339x839 | characters, stickman_thinking |
@@ -29,10 +35,14 @@
 | `algorithm_icon.png` | objects asset: algorithm_icon.png | 702x564 | objects, algorithm_icon |
 | `beer.png` | objects asset: beer.png | 392x704 | objects, beer |
 | `blueprint.png` | objects asset: blueprint.png | 528x358 | objects, blueprint |
+| `browser_window_a.png` | 사이트 A 창 | 539x388 |  |
+| `browser_window_b.png` | 사이트 B 창 | 630x565 |  |
+| `browser_window_c.png` | 사이트 C 창 | 564x466 |  |
 | `bus_icon.png` | objects asset: bus_icon.png | 733x476 | objects, bus_icon |
 | `chocolate.png` | objects asset: chocolate.png | 300x574 | objects, chocolate |
 | `clock.png` | objects asset: clock.png | 718x718 | objects, clock |
 | `cookie_icon.png` | objects asset: cookie_icon.png | 408x452 | objects, cookie_icon |
+| `crowd_clicks.png` | 수천 명의 클릭 시각화 | 751x491 |  |
 | `data_collection.png` | objects asset: data_collection.png | 282x683 | objects, data_collection |
 | `esl_display.png` | objects asset: esl_display.png | 544x446 | objects, esl_display |
 | `eye_icon.png` | objects asset: eye_icon.png | 761x423 | objects, eye_icon |
@@ -46,16 +56,22 @@
 | `mountain_peak.png` | objects asset: mountain_peak.png | 652x445 | objects, mountain_peak |
 | `paper_price_tag.png` | objects asset: paper_price_tag.png | 455x509 | objects, paper_price_tag |
 | `question_mark.png` | objects asset: question_mark.png | 382x580 | objects, question_mark |
+| `ramen.png` | objects asset: ramen.png | 398x540 | objects, ramen |
 | `ramen_icon.png` | objects asset: ramen_icon.png | 356x629 | objects, ramen_icon |
 | `shopping_cart.png` | objects asset: shopping_cart.png | 699x593 | objects, shopping_cart |
 | `shrug_icon.png` | objects asset: shrug_icon.png | 448x478 | objects, shrug_icon |
 | `smartphone.png` | objects asset: smartphone.png | 376x759 | objects, smartphone |
 | `snack_bag.png` | objects asset: snack_bag.png | 668x880 | objects, snack_bag |
+| `stickman_explaining.png` | objects asset: stickman_explaining.png | 749x1073 | objects, stickman_explaining |
+| `stickman_happy.png` | objects asset: stickman_happy.png | 527x782 | objects, stickman_happy |
+| `stickman_pointing.png` | objects asset: stickman_pointing.png | 446x933 | objects, stickman_pointing |
 | `toilet_paper.png` | objects asset: toilet_paper.png | 440x349 | objects, toilet_paper |
 | `umbrella.png` | objects asset: umbrella.png | 169x883 | objects, umbrella |
+| `user_profile.png` | 재방문 고객 프로필 | 371x412 |  |
 | `wallet.png` | objects asset: wallet.png | 944x912 | objects, wallet |
 | `water_bottle.png` | objects asset: water_bottle.png | 252x708 | objects, water_bottle |
 | `water_bottlet.png` | objects asset: water_bottlet.png | 252x708 | objects, water_bottlet |
+| `wave_demand.png` | 수요의 파도 시각화 | 524x270 |  |
 
 ## 아이콘 (icons/)
 
@@ -94,6 +110,7 @@
 | `infinity_emphasis.svg` | icons asset: infinity_emphasis.svg | 300x300 | icons, infinity_emphasis |
 | `laptop.png` | icons asset: laptop.png | 756x490 | icons, laptop |
 | `less_equal_emphasis.svg` | icons asset: less_equal_emphasis.svg | 300x300 | icons, less_equal_emphasis |
+| `lightbulb.svg` | icons asset: lightbulb.svg | 300x300 | icons, lightbulb |
 | `lightning.svg` | icons asset: lightning.svg | 300x300 | icons, lightning |
 | `mountain_peak.png` | icons asset: mountain_peak.png | 652x445 | icons, mountain_peak |
 | `not_equal_emphasis.svg` | icons asset: not_equal_emphasis.svg | 300x300 | icons, not_equal_emphasis |
@@ -101,8 +118,10 @@
 | `question_mark.svg` | icons asset: question_mark.svg | 300x300 | icons, question_mark |
 | `ramen_icon.png` | icons asset: ramen_icon.png | 356x629 | icons, ramen_icon |
 | `shrug_icon.png` | icons asset: shrug_icon.png | 448x478 | icons, shrug_icon |
+| `star.svg` | icons asset: star.svg | 300x300 | icons, star |
 | `star_empty.svg` | icons asset: star_empty.svg | 300x300 | icons, star_empty |
 | `star_filled.svg` | icons asset: star_filled.svg | 300x300 | icons, star_filled |
+| `user_profile.svg` | icons asset: user_profile.svg | 300x300 | icons, user_profile |
 | `warning_triangle.svg` | icons asset: warning_triangle.svg | 300x300 | icons, warning_triangle |
 
 ---

@@ -2,13 +2,50 @@
 name: manim-coder
 description: Visual Prompter의 시각 명세(JSON)를 Manim Python 코드로 변환. "manim", "코드 생성", "렌더링 코드" 작업 시 사용. s{n}_visual.json을 받아 s{n}_manim.py 출력.
 tools: Read, Write, Glob
-model: sonnet
+
+
 ---
 
 # Manim Coder Agent
 
 > **중요**: 작업 시작 전 반드시 `skills/manim-coder-reference.md`도 함께 읽으세요.
 > 해당 파일에 객체 타입별 변환, 애니메이션 변환, 코드 템플릿이 있습니다.
+
+---
+
+## 0. 파일 읽기 규칙 (필수 준수)
+
+### ✅ 읽어야 할 파일 (필수)
+
+| 파일 | 경로 | 용도 |
+|------|------|------|
+| visual.json | `3_visual_prompts/s{n}_visual.json` | 시각 명세 |
+| reference | `skills/manim-coder-reference.md` | 변환 규칙 (최초 1회) |
+
+### ❌ 읽지 말아야 할 파일
+
+| 파일 | 이유 |
+|------|------|
+| `s{n}.json` (씬 원본) | visual.json에 모든 정보 포함 |
+| `s{n}_layout.json` | visual.json에 이미 포함됨 |
+| `scenes.json` | 불필요 |
+| `state.json` | 불필요 |
+| `timing.json` | visual.json의 sequence에 반영됨 |
+
+### 작업 순서
+
+```
+1. skills/manim-coder-reference.md 읽기 (최초 1회)
+2. 담당 씬 범위 파악 (예: s1~s20)
+3. 각 씬에 대해:
+   a. Read: 3_visual_prompts/s{n}_visual.json
+   b. Write: 4_manim_code/s{n}_manim.py
+4. 다음 씬으로 이동
+```
+
+**총 도구 사용 예상**: 1 + (씬 수 × 2) (reference 1회 + Read/Write 각 1개씩)
+
+---
 
 ## 역할 정의
 

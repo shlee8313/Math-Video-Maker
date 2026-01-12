@@ -1,0 +1,14 @@
+<svg width="300" height="300" viewBox="0 0 300 300" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <radialGradient id="starGrad" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+                        <stop offset="0%" stop-color="#FFD700"></stop>
+                        <stop offset="100%" stop-color="#FFA500"></stop>
+                    </radialGradient>
+                </defs>
+                <path d="M150 40L182.35 115.65L264.15 122.35L202.08 176.35L221.2 256.35L150 213.65L78.8 256.35L97.92 176.35L35.85 122.35L117.65 115.65L150 40Z" fill="url(#starGrad)" stroke="#E69500" stroke-width="2"></path>
+                <path d="M150 65L170 125L230 130L185 170" stroke="white" stroke-width="4" stroke-linecap="round" opacity="0.3"></path>
+                <circle cx="60" cy="70" r="4" fill="#FFD700"></circle>
+                <circle cx="240" cy="60" r="6" fill="#FFD700"></circle>
+                <circle cx="260" cy="220" r="3" fill="#FFD700"></circle>
+                <circle cx="50" cy="200" r="5" fill="#FFD700"></circle>
+            </svg>

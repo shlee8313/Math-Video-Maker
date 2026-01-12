@@ -1,0 +1,15 @@
+<svg width="300" height="300" viewBox="0 0 300 300" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <line x1="150" y1="40" x2="150" y2="70" stroke="#FFD700" stroke-width="8" stroke-linecap="round"></line>
+                <line x1="60" y1="100" x2="90" y2="120" stroke="#FFD700" stroke-width="8" stroke-linecap="round"></line>
+                <line x1="240" y1="100" x2="210" y2="120" stroke="#FFD700" stroke-width="8" stroke-linecap="round"></line>
+                <path d="M150 220C110 220 80 190 80 145C80 100 111.34 70 150 70C188.66 70 220 100 220 145C220 190 190 220 150 220Z" fill="#FFD700"></path>
+                <path d="M185 110C195 125 195 145 185 160" stroke="white" stroke-width="6" stroke-linecap="round" opacity="0.4"></path>
+                <path d="M135 170C135 170 140 155 150 155C160 155 165 170 165 170" stroke="#FFA500" stroke-width="4" stroke-linecap="round" fill="none"></path>
+                <path d="M135 185C135 185 140 170 150 170C160 170 165 185 165 185" stroke="#FFA500" stroke-width="4" stroke-linecap="round" fill="none"></path>
+                <line x1="135" y1="170" x2="135" y2="200" stroke="#FFA500" stroke-width="3"></line>
+                <line x1="165" y1="170" x2="165" y2="200" stroke="#FFA500" stroke-width="3"></line>
+                <rect x="125" y="220" width="50" height="10" rx="2" fill="#A0A0A0"></rect>
+                <rect x="125" y="235" width="50" height="10" rx="2" fill="#808080"></rect>
+                <rect x="125" y="250" width="50" height="10" rx="2" fill="#606060"></rect>
+                <path d="M135 260L150 275L165 260H135Z" fill="#404040"></path>
+            </svg>
