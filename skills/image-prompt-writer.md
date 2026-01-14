@@ -20,30 +20,27 @@
 
 ```
 각 스타일(미니멀, 사이버펑크 등)의 특성 준수
-→ 컬러 팔레트 일치
-→ 분위기 통일
+→ 바탕 색상은 스타일별로 다름
+→ 장식 요소는 모두 희미한 회색 (#AAAAAA ~ #CCCCCC)
 ```
 
-### 3. Manim 색상 매칭 (충돌 방지)
+### 3. 장식 요소 = 희미한 회색 (모든 스타일 공통)
 
 ```
-⚠️ 핵심 원칙: 배경 색상 ≠ 수식 색상 (같은 색상 금지!)
+⚠️ 핵심 원칙: 장식 요소는 절대 눈에 띄면 안됨!
 
-배경은 항상:
-→ 어두운 명도 (dark, deep, dim)
-→ 낮은 채도 (muted, subtle, soft, desaturated)
-→ 수식과 다른 색상 계열
+모든 스타일에서 장식 요소 색상:
+→ very faint gray (#AAAAAA ~ #CCCCCC)
+→ barely visible, subtle, ghost-like
+→ 10-20% opacity 느낌으로
 
-스타일별 수식 색상:
-- minimal: YELLOW, WHITE
-- cyberpunk: CYAN, MAGENTA, YELLOW
-- paper: BLACK, DARK_BLUE
-- space: WHITE, BLUE
-- geometric: YELLOW, GREEN, WHITE
-- stickman: WHITE, YELLOW
+장식 요소 예시:
+- 격자(grid), 회로 패턴(circuit), 기하학 도형
+- 별, 성운, 홀로그램, UI 요소
+- 선, 점, 패턴 등 모든 장식
 
-❌ 금지: 배경에 수식과 같은 색상 사용
-   예) cyberpunk 배경에 neon cyan → 수식 cyan과 충돌
+❌ 금지: 네온, 밝은 색, 눈에 띄는 장식
+✅ 필수: faint gray, barely visible, subtle ghost pattern
 ```
 
 ---
@@ -52,108 +49,118 @@
 
 ### A. 미니멀 (Minimal)
 
-**수식 색상**: YELLOW, WHITE
-**배경 색상**: muted gray, soft blue, subtle purple (YELLOW/WHITE 제외)
+**바탕**: clean dark gradient (어두운 그라데이션)
+**장식**: faint gray geometric patterns, barely visible
 
 ```
 minimalist mathematical background, clean dark gradient,
-soft muted [blue/purple/gray] undertones, low saturation,
-subtle geometric pattern, no text, no letters, no numbers, no Korean,
-suitable for bright yellow and white equations overlay,
+soft muted [green/yellow/gray] undertones,
+very faint gray geometric patterns, barely visible grid lines,
+subtle ghost-like shapes at 15% opacity,
+no text, no letters, no numbers, no Korean,
 16:9 ratio, high contrast, professional education video background, 8K quality
 ```
 
 ### B. 사이버펑크 (Cyberpunk)
 
-**수식 색상**: CYAN, MAGENTA, YELLOW
-**배경 색상**: dark muted purple, dark deep blue, dark soft orange, dark subtle teal (CYAN/MAGENTA 제외)
+**바탕**: very dark scene, near-black base (거의 검은색)
+**장식**: faint gray circuits, ghost-like grid, subtle gray holographic shapes
 
 ```
 cyberpunk mathematical background, very dark futuristic scene,
-dark muted [purple/blue/orange/teal] accents, low saturation glow, dim lighting,
-deep shadows, dark atmosphere, near-black base,
-digital grid, circuit patterns, subtle holographic effects,
+near-black base with subtle [green/yellow/grey] tint,
+faint gray digital grid barely visible, ghost-like circuit patterns in light gray,
+all decorative elements in muted gray (#AAAAAA to #CCCCCC),
+no neon colors, no bright accents, no glowing elements,
 no text, no letters, no numbers, no Korean,
-suitable for bright cyan and magenta equations overlay,
-16:9 ratio, high contrast, 8K quality
+16:9 ratio, high contrast for text overlay, 8K quality
 ```
 
-**색상 옵션** (씬마다 다르게 선택 가능):
-- dark purple + deep blue: 차분한 사이버펑크
-- dark orange + muted pink: 따뜻한 레트로
-- dark teal + bronze: 고급스러운 테크
+**바탕 틴트 옵션** (씬마다 선택):
+- subtle purple tint: 차분한 분위기
+- subtle blue tint: 차가운 테크 느낌
+- subtle teal tint: 고급스러운 느낌
 
-**핵심**: 배경은 어둡게 (near-black), 색상 악센트만 연하게
+**핵심**: 바탕은 거의 검정, 장식은 희미한 회색으로만
 
 ### C. 종이 질감 (Paper)
 
-**수식 색상**: BLACK, DARK_BLUE
-**배경 색상**: soft beige, warm cream, subtle ivory
+**바탕**: warm beige to cream (따뜻한 베이지/크림색)
+**장식**: faint gray cyberpunk elements + mathematical formulas
 
 ```
 paper texture background, warm beige to cream gradient,
-soft muted ivory tones, subtle paper grain,
+subtle paper grain texture,
+faint gray digital grid barely visible, ghost-like circuit patterns in light gray,
+faint gray futuristic UI elements, barely visible tech lines and connection nodes,
+very faint gray mathematical formulas scattered in background like integral signs and sigma notation and partial derivatives and matrix brackets and limit expressions,
+all decorative elements in muted gray #BBBBBB to #CCCCCC,
 no text, no letters, no numbers, no Korean,
-suitable for dark black equations overlay,
 16:9 ratio, vintage education aesthetic, 8K quality
 ```
 
 ### D. 우주 (Space)
 
-**수식 색상**: WHITE, BLUE
-**배경 색상**: muted purple, soft navy, subtle maroon (WHITE/BLUE 제외)
+**바탕**: deep dark space (깊고 어두운 우주)
+**장식**: faint gray stars, very subtle gray nebula hints
 
 ```
-space background, deep space scene with distant stars,
-soft muted purple and maroon nebula, low saturation,
+space background, deep dark space scene,
+near-black with subtle [purple/navy] tint,
+very faint gray stars barely visible, ghost-like nebula hints in muted gray,
+subtle gray cosmic dust at 10% opacity,
+no bright stars, no colorful nebula, no glowing elements,
 no text, no letters, no numbers, no Korean,
-suitable for bright white equations overlay,
 16:9 ratio, astronomical education aesthetic, 8K quality
 ```
 
 ### E. 기하학 (Geometric)
 
-**수식 색상**: YELLOW, GREEN, WHITE
-**배경 색상**: muted blue, soft purple, subtle gray (YELLOW/GOLD 제외)
+**바탕**: dark gradient with subtle color tint
+**장식**: faint gray geometric shapes, barely visible lines
 
 ```
-geometric pattern background, symmetrical mathematical shapes,
-soft muted [blue/purple/gray] tones, low saturation,
-abstract geometric lines, no text, no letters, no numbers, no Korean,
-suitable for bright yellow and green equations overlay,
+geometric pattern background, dark gradient base,
+subtle [blue/purple/gray] tint,
+very faint gray geometric shapes, barely visible symmetrical patterns,
+ghost-like mathematical lines in light gray (#BBBBBB),
+all patterns at 15% opacity,
+no text, no letters, no numbers, no Korean,
 16:9 ratio, mathematical aesthetic, 8K quality
 ```
 
 ### F. 스틱맨 (Stickman)
 
-**수식 색상**: WHITE, YELLOW
-**배경 색상**: muted teal, soft navy, subtle purple (WHITE/YELLOW 제외)
+**바탕**: soft dark gradient (부드러운 어두운 그라데이션)
+**장식**: faint gray playful shapes, subtle doodle-like patterns
 
 ```
-colorful educational background, playful atmosphere,
-soft muted [teal/navy/purple] gradient, low saturation,
+educational background, soft dark gradient,
+subtle [teal/navy/purple] tint,
+very faint gray playful shapes, barely visible doodle patterns,
+ghost-like circles and squares in light gray,
+friendly but subtle decorative elements,
 no text, no letters, no numbers, no Korean,
-suitable for bright white and yellow equations overlay,
 16:9 ratio, educational, friendly, 8K quality
 ```
 
 ---
 
-## 섹션별 색상 변화 (긴 영상용)
+## 섹션별 바탕 틴트 변화 (긴 영상용)
 
-10분 이상 영상에서 지루함 방지를 위해 섹션별로 배경 색상 변화 권장:
+10분 이상 영상에서 지루함 방지를 위해 섹션별로 바탕 틴트 변화 권장:
 
 ```
-| 섹션           | 추천 배경 색상      | 감정/분위기      |
-|----------------|---------------------|------------------|
-| Hook           | purple + blue       | 긴장감, 호기심   |
-| 분석           | orange + pink       | 따뜻함, 친근함   |
-| 핵심 수학      | teal + gray         | 집중, 차분함     |
-| 적용           | bronze + green      | 성취감, 실용     |
-| 아웃트로       | purple + blue       | 마무리, 여운     |
+| 섹션           | 바탕 틴트           | 장식 색상 (고정)    |
+|----------------|---------------------|---------------------|
+| Hook           | subtle purple tint  | faint gray (#AAAAAA)|
+| 분석           | subtle blue tint    | faint gray (#BBBBBB)|
+| 핵심 수학      | subtle teal tint    | faint gray (#AAAAAA)|
+| 적용           | subtle green tint   | faint gray (#CCCCCC)|
+| 아웃트로       | subtle purple tint  | faint gray (#AAAAAA)|
 ```
 
-**주의**: 같은 섹션 내에서는 색상 통일 권장
+**주의**: 장식 요소 색상은 항상 희미한 회색으로 고정!
 
 ---
 
@@ -176,7 +183,9 @@ suitable for bright white and yellow equations overlay,
 ```
 text, letters, numbers, words, Korean, Chinese, Japanese,
 equations, formulas, mathematical symbols, writing,
-watermark, logo, signature, blurry, low quality
+watermark, logo, signature, blurry, low quality,
+neon colors, bright accents, glowing elements, vibrant colors,
+saturated colors, high contrast patterns, eye-catching decorations
 ```
 
 ---
@@ -185,8 +194,9 @@ watermark, logo, signature, blurry, low quality
 
 - [ ] "no text, no letters, no numbers" 포함
 - [ ] 종횡비 명시 (16:9 or 9:16)
-- [ ] 스타일 키워드 정확
-- [ ] 네거티브 프롬프트 포함
+- [ ] 장식 요소 = faint gray, barely visible 명시
+- [ ] 네거티브에 neon, bright, glowing 포함
+- [ ] 바탕색은 스타일에 맞게 유지
 
 ---
 
@@ -199,21 +209,21 @@ watermark, logo, signature, blurry, low quality
 - `prompts_batch.txt` - 복사용
 - `prompts_batch.json` - 프로그램용
 
-**섹션별 색상:**
+**섹션별 설정:**
 
-| 섹션 | 씬 | 배경 색상 |
-|------|-----|----------|
-| Hook | s1~s2 | soft muted **purple + deep blue** |
-| 분석 | s3~s23 | soft muted **orange + warm pink** |
-| 핵심수학 | s24~s61 | soft muted **teal + gray** |
-| 적용 | s62~s79 | soft muted **bronze + olive green** |
-| 아웃트로 | s80~s84 | soft muted **purple + deep blue** |
+| 섹션 | 씬 | 바탕 틴트 | 장식 색상 |
+|------|-----|----------|----------|
+| Hook | s1~s2 | subtle **purple** tint | faint gray |
+| 분석 | s3~s23 | subtle **blue** tint | faint gray |
+| 핵심수학 | s24~s61 | subtle **teal** tint | faint gray |
+| 적용 | s62~s79 | subtle **green** tint | faint gray |
+| 아웃트로 | s80~s84 | subtle **purple** tint | faint gray |
 ```
 
 **필수 포함 정보:**
 - 저장 위치 (폴더 경로)
 - 파일 목록 (txt, json)
-- 섹션별 씬 범위와 배경 색상 표
+- 섹션별 바탕 틴트와 장식 색상 표
 
 ---
 
@@ -221,5 +231,6 @@ watermark, logo, signature, blurry, low quality
 
 - 텍스트/문자 허용하는 프롬프트
 - 종횡비 누락
+- 장식 요소에 밝은 색/네온 색 사용
+- 눈에 띄는 패턴이나 그래픽
 - "mathematical equations" 이미지에 포함 유도
-- 스타일 혼재

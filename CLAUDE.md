@@ -13,6 +13,7 @@
 | 1 | 프로젝트 설정 | Claude | state.json |
 | 2 | 대본 작성 | Claude → script-writer | reading_script.json |
 | 3 | 씬 분할 + 나레이션 | Sub-agents (6개) | scenes.json, s#.json |
+| 3.1 | 전환 텍스트 생성 | Claude | transitions.json |
 | 3.5 | 에셋 체크 | Claude + Supabase | assets/ 폴더 |
 | 4 | TTS 생성 | OpenAI API | 0_audio/*.mp3 |
 | 4.5 | Visual Prompter | Sub-agents (30씬 배치) | s#_visual.json |
@@ -20,7 +21,9 @@
 | 5.1 | 코드 검증 | Claude | 검증된 s#_manim.py |
 | 5.5 | 배경 이미지 | 외부 생성 | 9_backgrounds/ |
 | 6 | 렌더링 | Manim | 8_renders/ |
-| 7 | 자막 + 합성 | FFmpeg | final_video.mp4 |
+| 7 | 자막 + 합성 | FFmpeg | s#_final.mp4 |
+| 7.5 | 전환 클립 생성 | FFmpeg | t_after_s#.mp4, concat_list.txt |
+| 8 | 최종 병합 | FFmpeg | final_video.mp4 |
 
 ---
 
@@ -84,6 +87,36 @@ python math_video_pipeline.py merge-scenes
 **씬 JSON 핵심 필드:**
 - `narration_display`, `subtitle_display`, `narration_tts` (나레이션 3종)
 - `semantic_goal`, `required_elements`, `required_assets`
+
+✅ **/clear 가능**
+
+---
+
+## Step 3.1: 전환 텍스트 생성
+
+씬 분할 완료 후, 섹션 전환 지점에 휴식 클립용 텍스트를 작성한다.
+
+**Claude가 할 일:**
+1. `scenes.json`에서 section이 바뀌는 지점 확인
+2. 각 전환점에 질문형 텍스트 작성 (다음 내용에 대한 호기심 유발)
+3. `2_scenes/transitions.json` 저장
+
+**transitions.json 형식:**
+```json
+[
+  {"after_scene": "s11", "text": "그래서, 얼마나 더 받을 수 있을까?", "duration": 2},
+  {"after_scene": "s36", "text": "알았다면, 이제 뭘 해야 할까?", "duration": 2}
+]
+```
+
+**텍스트 작성 규칙:**
+- 질문형으로 작성 (호기심 유발)
+- 1문장, 짧고 임팩트 있게
+- 다음 섹션 내용을 암시하되 스포일러 금지
+
+**전환 클립이 필요 없는 구간:**
+- Hook → 분석: Hook이 짧고, 바로 본론 진입해야 몰입 유지
+- 적용 → 아웃트로: 아웃트로도 짧고, 자연스럽게 마무리해야 함
 
 ✅ **/clear 가능**
 
@@ -200,14 +233,60 @@ python math_video_pipeline.py images-check
 
 ---
 
-## Step 6-7: 렌더링 + 합성
+## Step 6: 렌더링
 
 ```bash
 python math_video_pipeline.py render-all      # Manim 렌더링
-python math_video_pipeline.py subtitle-generate  # SRT 생성
-python math_video_pipeline.py compose-all     # 씬별 합성
-python math_video_pipeline.py merge-final     # 최종 병합
 ```
+
+---
+
+## Step 7: 자막 + 합성
+
+```bash
+python math_video_pipeline.py subtitle-generate  # SRT 생성
+python math_video_pipeline.py compose-all        # 씬별 합성 → s*_final.mp4 생성
+```
+
+---
+
+## Step 7.5: 전환 클립 생성
+
+> ⚠️ **반드시 compose-all 이후에 실행** (s*_final.mp4 파일이 있어야 concat_list.txt 생성됨)
+
+```bash
+python math_video_pipeline.py transition-generate
+```
+
+**동작:**
+1. `2_scenes/transitions.json` 읽기
+2. 각 전환점에 대해 FFmpeg로 클립 생성:
+   - 배경: 스타일에 맞는 어두운 그라데이션
+   - 텍스트: 페이드인 → 유지 → 페이드아웃
+   - 시간: transitions.json의 duration 값 (기본 2초)
+3. `10_scene_final/t_after_s{n}.mp4` 출력
+4. `10_scene_final/concat_list.txt` 생성 (전체 병합 순서)
+
+**concat_list.txt 예시:**
+```
+file 's1_final.mp4'
+file 's2_final.mp4'
+...
+file 's11_final.mp4'
+file 't_after_s11.mp4'
+file 's12_final.mp4'
+...
+```
+
+---
+
+## Step 8: 최종 병합
+
+```bash
+python math_video_pipeline.py merge-final        # 최종 병합 (concat_list.txt 사용)
+```
+
+> ⚠️ `merge-final`은 `concat_list.txt`가 있으면 해당 순서대로 병합
 
 ---
 
@@ -280,6 +359,7 @@ Math-Video-Maker/
 | `code-validator.md` | 메인 Claude (Step 5.1) | Manim 코드 검증, 파이프라인 일관성 |
 | `image-prompt-writer.md` | 메인 Claude (Step 5.5) | 배경 이미지용 프롬프트, 스타일별 색상 |
 | `scene-editor.md` | 메인 Claude (Post-Production) | 씬 수정/추가/삭제 가이드 |
+| `youtube-uploader.md` | 메인 Claude (Post-Production) | 유튜브 업로드 메타데이터 생성 |
 
 ---
 
@@ -298,6 +378,7 @@ Math-Video-Maker/
 | `tts-all` | TTS 생성 |
 | `validate-all` | 코드 검증 |
 | `render-all` | Manim 렌더링 |
+| `transition-generate` | 전환 클립 생성 + concat_list.txt |
 | `compose-all` / `merge-final` | 최종 합성 |
 | `verify-sync [s#]` | 대본-TTS 동기화 검증 |
 | `tts-scene s#` | 개별 씬 TTS |
@@ -406,6 +487,7 @@ python math_video_pipeline.py merge-final
 | "시작" | 새 프로젝트 |
 | "상태" / "계속" | 확인 / 재개 |
 | "s7 수정" | 씬 수정 (위 참조) |
+| "유튜브 업로드 정보" | 제목/설명/태그/썸네일 프롬프트 생성 |
 
 ---
 

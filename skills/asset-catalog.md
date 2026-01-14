@@ -3,8 +3,8 @@
 > 이 파일은 `asset-sync` 실행 시 Supabase에서 자동 생성됩니다.
 > 수동으로 수정하지 마세요.
 
-**마지막 업데이트**: 2026-01-12 09:31:43
-**총 에셋 수**: 101개
+**마지막 업데이트**: 2026-01-13 21:25:06
+**총 에셋 수**: 111개
 
 ---
 
@@ -16,11 +16,13 @@
 | `stickman_business.png` | characters asset: stickman_business.png | 380x982 | characters, stickman_business |
 | `stickman_casual.png` | characters asset: stickman_casual.png | 304x940 | characters, stickman_casual |
 | `stickman_confident.png` | characters asset: stickman_confident.png | 388x919 | characters, stickman_confident |
+| `stickman_confused.png` | 혼란스러운 운전자 | 444x910 |  |
 | `stickman_explaining.png` | 설명하는 캐릭터 | 749x1073 |  |
 | `stickman_happy.png` | 유연한 여행자 | 527x782 |  |
 | `stickman_neutral.png` | characters asset: stickman_neutral.png | 383x915 | characters, stickman_neutral |
 | `stickman_pointing.png` | 설명하는 캐릭터 | 446x933 |  |
 | `stickman_rushing.png` | characters asset: stickman_rushing.png | 743x898 | characters, stickman_rushing |
+| `stickman_sad.png` | 갇힌 운전자들 | 373x938 |  |
 | `stickman_surprised.png` | objects asset:stickman_surprised. | 728x1024 | character, stickman, emotion |
 | `stickman_thinking.png` | characters asset: stickman_thinking.png | 339x839 | characters, stickman_thinking |
 | `stickman_worried.png` | characters asset: stickman_worried.png | 382x870 | characters, stickman_worried |
@@ -90,9 +92,14 @@
 | `arrow_right.svg` | icons asset: arrow_right.svg | 300x300 | icons, arrow_right |
 | `arrow_up.svg` | icons asset: arrow_up.svg | 300x300 | icons, arrow_up |
 | `arrow_vertical_bidirectional.svg` | icons asset: arrow_vertical_bidirectional.svg | 300x300 | icons, arrow_vertical_bidirectional |
+| `balance_scale.png` | 균형 상징 | 717x619 |  |
+| `balance_scale_transparent.png` | icons asset: balance_scale_transparent.png | 717x619 | icons, balance_scale_transparent |
 | `blueprint.png` | icons asset: blueprint.png | 528x358 | icons, blueprint |
+| `briefcase.png` | 취업 아이콘 | 566x500 |  |
 | `bus_icon.png` | icons asset: bus_icon.png | 733x476 | icons, bus_icon |
 | `calendar.png` | 달력 아이콘 | 1463x1234 |  |
+| `car_icon.png` | 자동차/운전자 상징 | 878x327 |  |
+| `certificate.png` | 자격증 아이콘 | 845x592 |  |
 | `checkmark.svg` | icons asset: checkmark.svg | 300x300 | icons, checkmark |
 | `circle_empty.svg` | icons asset: circle_empty.svg | 300x300 | icons, circle_empty |
 | `circle_filled.svg` | icons asset: circle_filled.svg | 300x300 | icons, circle_filled |
@@ -103,11 +110,13 @@
 | `diamond_filled.svg` | icons asset: diamond_filled.svg | 300x300 | icons, diamond_filled |
 | `exclamation_mark.svg` | icons asset: exclamation_mark.svg | 300x300 | icons, exclamation_mark |
 | `eye_icon.png` | icons asset: eye_icon.png | 761x423 | icons, eye_icon |
+| `germany_flag.png` | 독일 표시 | 709x609 |  |
 | `glasses.png` | icons asset: glasses.png | 699x195 | icons, glasses |
 | `greater_equal_emphasis.svg` | icons asset: greater_equal_emphasis.svg | 300x300 | icons, greater_equal_emphasis |
 | `heart_filled.svg` | icons asset: heart_filled.svg | 300x300 | icons, heart_filled |
 | `iceberg.png` | icons asset: iceberg.png | 534x511 | icons, iceberg |
 | `infinity_emphasis.svg` | icons asset: infinity_emphasis.svg | 300x300 | icons, infinity_emphasis |
+| `korea_flag.png` | 한국 표시 | 730x682 |  |
 | `laptop.png` | icons asset: laptop.png | 756x490 | icons, laptop |
 | `less_equal_emphasis.svg` | icons asset: less_equal_emphasis.svg | 300x300 | icons, less_equal_emphasis |
 | `lightbulb.svg` | icons asset: lightbulb.svg | 300x300 | icons, lightbulb |
@@ -121,6 +130,7 @@
 | `star.svg` | icons asset: star.svg | 300x300 | icons, star |
 | `star_empty.svg` | icons asset: star_empty.svg | 300x300 | icons, star_empty |
 | `star_filled.svg` | icons asset: star_filled.svg | 300x300 | icons, star_filled |
+| `usa_flag.png` | 미국 표시 | 707x601 |  |
 | `user_profile.svg` | icons asset: user_profile.svg | 300x300 | icons, user_profile |
 | `warning_triangle.svg` | icons asset: warning_triangle.svg | 300x300 | icons, warning_triangle |
 

@@ -77,7 +77,8 @@
       "Bash(timeout /t 30 /nobreak)",
       "Bash(git push:*)",
       "Bash(git -C \"C:/PROJECT/Math-Video-Maker\" add -A)",
-      "Bash(git -C \"C:/PROJECT/Math-Video-Maker\" commit -m \"$\\(cat <<''EOF''\nScene Director 분리 작업 전 백업\n\n- Sub-agents 기반 워크플로우 현재 상태\n- scene-director.md: 나레이션 규칙 포함 \\(분리 예정\\)\n- 신규 에셋: stickman 캐릭터 5종, ramen 오브젝트\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(git -C \"C:/PROJECT/Math-Video-Maker\" commit -m \"$\\(cat <<''EOF''\nScene Director 분리 작업 전 백업\n\n- Sub-agents 기반 워크플로우 현재 상태\n- scene-director.md: 나레이션 규칙 포함 \\(분리 예정\\)\n- 신규 에셋: stickman 캐릭터 5종, ramen 오브젝트\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git reset:*)"
     ]
   }
 }

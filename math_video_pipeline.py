@@ -3069,57 +3069,60 @@ class ImageManager:
         return batch_file
     
     def _generate_prompt(self, style: str, aspect_ratio: str, visual_concept: str, section: str) -> str:
-        """스타일별 이미지 프롬프트 생성"""
-        
-        # 스타일별 기본 프롬프트
+        """스타일별 이미지 프롬프트 생성 - 장식 요소는 희미한 회색으로 통일"""
+
+        # 스타일별 기본 프롬프트 (바탕색 유지, 장식은 faint gray)
         style_prompts = {
             "minimal": {
-                "base": "minimalist mathematical background, clean dark gradient from black center to deep gray edges",
-                "accent": "subtle geometric pattern",
-                "equation_color": "bright yellow and white"
+                "base": "minimalist mathematical background, clean dark gradient",
+                "tint": "soft muted blue undertones",
+                "decoration": "very faint gray geometric patterns, barely visible grid lines, subtle ghost-like shapes at 15% opacity",
             },
             "cyberpunk": {
-                "base": "cyberpunk mathematical background, dark futuristic scene with neon cyan and magenta accents, digital grid",
-                "accent": "holographic glow effects, circuit patterns",
-                "equation_color": "bright cyan and magenta"
+                "base": "cyberpunk mathematical background, very dark futuristic scene, near-black base",
+                "tint": "subtle purple tint",
+                "decoration": "faint gray digital grid barely visible, ghost-like circuit patterns in light gray, very subtle gray holographic rectangles at 15% opacity, all decorative elements in muted gray",
             },
             "paper": {
-                "base": "vintage paper texture background, warm beige to cream gradient, subtle paper grain",
-                "accent": "aged parchment feel, soft edges",
-                "equation_color": "dark ink, handwritten style"
+                "base": "paper texture background, warm beige to cream gradient, subtle paper grain texture",
+                "tint": "",
+                "decoration": "faint gray digital grid barely visible, ghost-like circuit patterns in light gray, very subtle gray holographic rectangles at 15% opacity, faint gray futuristic UI elements, barely visible tech lines and connection nodes, very faint gray mathematical formulas scattered in background like integral signs and sigma notation and partial derivatives and matrix brackets and limit expressions, all decorative elements in muted gray #BBBBBB to #CCCCCC",
             },
             "space": {
-                "base": "deep space background, cosmic scene with distant stars and nebula in dark purple and blue",
-                "accent": "galaxy swirls, stellar glow",
-                "equation_color": "bright white and yellow"
+                "base": "space background, deep dark space scene, near-black",
+                "tint": "subtle purple tint",
+                "decoration": "very faint gray stars barely visible, ghost-like nebula hints in muted gray, subtle gray cosmic dust at 10% opacity, no bright stars, no colorful nebula",
             },
             "geometric": {
-                "base": "geometric pattern background, symmetrical mathematical shapes, golden ratio spiral",
-                "accent": "sacred geometry, precise lines",
-                "equation_color": "gold and white"
+                "base": "geometric pattern background, dark gradient base",
+                "tint": "subtle blue tint",
+                "decoration": "very faint gray geometric shapes, barely visible symmetrical patterns, ghost-like mathematical lines in light gray, all patterns at 15% opacity",
             },
             "stickman": {
-                "base": "dark colorful background gradient from deep blue to purple, clean and simple",
-                "accent": "subtle playful elements, friendly atmosphere",
-                "equation_color": "bright white and yellow"
+                "base": "educational background, soft dark gradient",
+                "tint": "subtle teal tint",
+                "decoration": "very faint gray playful shapes, barely visible doodle patterns, ghost-like circles and squares in light gray, friendly but subtle decorative elements",
             }
         }
-        
+
         config = style_prompts.get(style, style_prompts["cyberpunk"])
-        
+
         # 종횡비 텍스트
         ratio_text = "16:9 widescreen horizontal" if aspect_ratio == "16:9" else "9:16 vertical portrait mobile"
-        
-        prompt = f"""{config['base']},
-{config['accent']},
+
+        # 틴트가 있으면 추가
+        tint_text = f", {config['tint']}" if config['tint'] else ""
+
+        prompt = f"""{config['base']}{tint_text},
+{config['decoration']},
+no neon colors, no bright accents, no glowing elements,
 mathematical education video background,
 no text, no letters, no numbers, no Korean, no equations,
-suitable for {config['equation_color']} mathematical equations overlay,
 {ratio_text} ratio,
-high contrast, professional education aesthetic,
+high contrast for text overlay, professional education aesthetic,
 8K quality, sharp details
 
-Negative prompt: text, letters, numbers, words, Korean, Chinese, Japanese, equations, formulas, mathematical symbols, writing, watermark, logo, signature, blurry, low quality, pixelated, faces, people, hands"""
+Negative prompt: text, letters, numbers, words, Korean, Chinese, Japanese, equations, formulas, mathematical symbols, writing, watermark, logo, signature, blurry, low quality, pixelated, faces, people, hands, neon colors, bright accents, glowing elements, vibrant colors, saturated colors, high contrast patterns"""
 
         return prompt
     
@@ -4234,8 +4237,14 @@ class ComposerManager:
 
         return None
 
-    def compose_scene(self, scene_id: str, with_subtitle: bool = True) -> Optional[Path]:
-        """단일 씬 합성 (배경 + Manim + 오디오 + 자막)"""
+    def compose_scene(self, scene_id: str, with_subtitle: bool = True, end_padding: float = 1.0) -> Optional[Path]:
+        """단일 씬 합성 (배경 + Manim + 오디오 + 자막)
+
+        Args:
+            scene_id: 씬 ID (예: s1, s2)
+            with_subtitle: 자막 포함 여부
+            end_padding: 씬 끝에 추가할 무음 패딩 (초). 마지막 프레임 유지됨.
+        """
         paths = self._get_project_paths()
         if not paths:
             print("❌ 활성 프로젝트가 없습니다.")
@@ -4268,8 +4277,11 @@ class ComposerManager:
             print(f"  ⚠️ 오디오 길이 확인 불가, 기본값 사용")
             audio_duration = 30.0
 
+        # 패딩 포함 총 길이 계산
+        total_duration = audio_duration + end_padding
+
         print(f"  📹 Manim: {manim_file.name}")
-        print(f"  🎵 Audio: {audio_file.name} ({audio_duration:.2f}초)")
+        print(f"  🎵 Audio: {audio_file.name} ({audio_duration:.2f}초 + {end_padding}초 패딩)")
         if bg_file:
             print(f"  🖼️  Background: {bg_file.name}")
         if subtitle_file and subtitle_file.exists():
@@ -4294,6 +4306,7 @@ class ComposerManager:
 
         # FFmpeg 합성 명령 구성 (배경 + Manim + 오디오 + 자막 한 번에)
         # eof_action=repeat: Manim 영상 끝나면 마지막 프레임 유지
+        # apad: 오디오 끝에 무음 패딩 추가 (씬 간 여유)
         if bg_file:
             # 배경 + Manim 오버레이 + 자막
             # subtitles 필터는 overlay 후 별도 체인으로 적용
@@ -4307,14 +4320,16 @@ class ComposerManager:
                     f"[ov]subtitles='{srt_path_fc}':"
                     f"force_style='FontName=Malgun Gothic,FontSize=20,"
                     f"PrimaryColour=&HFFFFFF,OutlineColour=&H000000,"
-                    f"Outline=2,Shadow=1,MarginV=15,MarginL=20,MarginR=20'[outv]"
+                    f"Outline=2,Shadow=1,MarginV=15,MarginL=20,MarginR=20'[outv];"
+                    f"[2:a]apad=pad_dur={end_padding}[outa]"
                 )
             else:
                 filter_complex = (
                     f"[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,"
                     f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2[bg];"
                     f"[1:v]scale=1920:1080:force_original_aspect_ratio=decrease,format=rgba[fg];"
-                    f"[bg][fg]overlay=(W-w)/2:(H-h)/2:eof_action=repeat[outv]"
+                    f"[bg][fg]overlay=(W-w)/2:(H-h)/2:eof_action=repeat[outv];"
+                    f"[2:a]apad=pad_dur={end_padding}[outa]"
                 )
 
             cmd = [
@@ -4323,24 +4338,25 @@ class ComposerManager:
                 "-i", str(manim_file),
                 "-i", str(audio_file),
                 "-filter_complex", filter_complex,
-                "-map", "[outv]", "-map", "2:a",
+                "-map", "[outv]", "-map", "[outa]",
                 "-c:v", "libx264", "-preset", "fast", "-crf", "23",
                 "-c:a", "aac", "-b:a", "192k",
-                "-t", str(audio_duration),
+                "-t", str(total_duration),
                 "-y", str(output_file)
             ]
         else:
             # Manim만 사용 (배경 없음) + 자막
             # tpad: Manim 끝나면 마지막 프레임 유지
-            video_filter = f"scale=1920:1080,tpad=stop_mode=clone:stop_duration={audio_duration}{subtitle_filter_part}"
+            video_filter = f"scale=1920:1080,tpad=stop_mode=clone:stop_duration={total_duration}{subtitle_filter_part}"
             cmd = [
                 self.ffmpeg_path,
                 "-i", str(manim_file),
                 "-i", str(audio_file),
                 "-vf", video_filter,
+                "-af", f"apad=pad_dur={end_padding}",
                 "-c:v", "libx264", "-preset", "fast", "-crf", "23",
                 "-c:a", "aac", "-b:a", "192k",
-                "-t", str(audio_duration),
+                "-t", str(total_duration),
                 "-y", str(output_file)
             ]
 
@@ -4398,6 +4414,225 @@ class ComposerManager:
 
         return composed
 
+    def transition_generate(self) -> bool:
+        """섹션 전환 클립 생성 + concat_list.txt 생성"""
+        paths = self._get_project_paths()
+        if not paths:
+            print("❌ 활성 프로젝트가 없습니다.")
+            return False
+
+        # transitions.json 읽기
+        transitions_file = paths["scenes"] / "transitions.json"
+        if not transitions_file.exists():
+            print("⚠️ transitions.json이 없습니다. 전환 클립 없이 진행합니다.")
+            # concat_list.txt만 생성
+            return self._generate_concat_list(paths, [])
+
+        with open(transitions_file, 'r', encoding='utf-8') as f:
+            transitions = json.load(f)
+
+        if not transitions:
+            print("⚠️ 전환 클립이 정의되지 않았습니다.")
+            return self._generate_concat_list(paths, [])
+
+        print(f"\n🎬 전환 클립 생성 ({len(transitions)}개)")
+
+        # 스타일별 색상 설정
+        style = self.state.get("settings.style", "cyberpunk")
+        style_colors = {
+            "minimal": {"bg": "black", "text": "white"},
+            "cyberpunk": {"bg": "#0a0a1a", "text": "#00ffff"},
+            "paper": {"bg": "#2a2a2a", "text": "#f5f5dc"},
+            "space": {"bg": "#000022", "text": "#4444ff"},
+            "geometric": {"bg": "#1a1a1a", "text": "#ffd700"},
+            "stickman": {"bg": "#1a1a2e", "text": "#ffffff"},
+        }
+        colors = style_colors.get(style, style_colors["cyberpunk"])
+
+        # 해상도 설정
+        aspect = self.state.get("settings.aspect_ratio", "16:9")
+        if aspect == "16:9":
+            width, height = 1920, 1080
+        else:  # 9:16
+            width, height = 1080, 1920
+
+        final_path = paths["final"]
+        final_path.mkdir(parents=True, exist_ok=True)
+
+        created_transitions = []
+
+        for t in transitions:
+            scene_id = t["after_scene"]
+            text = t["text"]
+            duration = t.get("duration", 2)
+
+            output_file = final_path / f"t_after_{scene_id}.mp4"
+            print(f"  {scene_id} 뒤 전환: \"{text}\"")
+
+            # Windows용 폰트 경로
+            font_path = "C\\:/Windows/Fonts/malgun.ttf"
+
+            # 텍스트에서 특수문자 이스케이프
+            escaped_text = text.replace("'", "\\'").replace(":", "\\:")
+
+            # 비디오 필터: 텍스트 + 페이드인/아웃
+            # fade=in:0:12 (0.5초 = 12프레임 @24fps), fade=out:36:12 (1.5초 지점부터)
+            fade_frames = 12  # 0.5초 at 24fps
+            total_frames = int(duration * 24)
+            fade_out_start = total_frames - fade_frames
+
+            vf_filter = (
+                f"drawtext=text='{escaped_text}':"
+                f"fontfile='{font_path}':"
+                f"fontsize=56:"
+                f"fontcolor={colors['text']}:"
+                f"x=(w-text_w)/2:y=(h-text_h)/2,"
+                f"fade=t=in:st=0:d=0.5,"
+                f"fade=t=out:st={duration - 0.5}:d=0.5"
+            )
+
+            cmd = [
+                self.ffmpeg_path,
+                "-f", "lavfi",
+                "-i", f"color=c={colors['bg']}:s={width}x{height}:d={duration}:r=24",
+                "-f", "lavfi",
+                "-i", f"anullsrc=r=44100:cl=stereo",
+                "-t", str(duration),
+                "-vf", vf_filter,
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-crf", "23",
+                "-c:a", "aac",
+                "-b:a", "128k",
+                "-pix_fmt", "yuv420p",
+                "-y", str(output_file)
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+
+            if result.returncode == 0 and output_file.exists():
+                print(f"    ✅ 생성: {output_file.name}")
+                created_transitions.append(scene_id)
+            else:
+                print(f"    ❌ 실패: {result.stderr[:200] if result.stderr else 'Unknown error'}")
+
+        # concat_list.txt 생성
+        success = self._generate_concat_list(paths, created_transitions)
+
+        print(f"\n✅ 전환 클립 생성 완료: {len(created_transitions)}개")
+        return success
+
+    def _generate_concat_list(self, paths: Dict[str, Path], transition_scenes: List[str]) -> bool:
+        """concat_list.txt 생성 (전환 클립 포함)"""
+        final_path = paths["final"]
+        scenes_file = paths["scenes"] / "scenes.json"
+
+        if not scenes_file.exists():
+            print("❌ scenes.json이 없습니다.")
+            return False
+
+        with open(scenes_file, 'r', encoding='utf-8') as f:
+            scenes = json.load(f)
+
+        scene_ids = [s["scene_id"] for s in scenes]
+        transition_set = set(transition_scenes)
+
+        concat_lines = []
+        for scene_id in scene_ids:
+            scene_file = final_path / f"{scene_id}_final.mp4"
+            if scene_file.exists():
+                concat_lines.append(f"file '{scene_id}_final.mp4'")
+
+                # 이 씬 뒤에 전환 클립이 있는지 확인
+                if scene_id in transition_set:
+                    transition_file = final_path / f"t_after_{scene_id}.mp4"
+                    if transition_file.exists():
+                        concat_lines.append(f"file 't_after_{scene_id}.mp4'")
+
+        # subscribe.mp4가 있으면 맨 끝에 추가
+        subscribe_file = Path(__file__).parent / "subscribe.mp4"
+        if subscribe_file.exists():
+            concat_lines.append(f"file '{subscribe_file.resolve()}'")
+            print("🔔 subscribe.mp4 추가됨 (영상 끝)")
+
+        concat_file = final_path / "concat_list.txt"
+        with open(concat_file, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(concat_lines))
+
+        print(f"📝 concat_list.txt 생성: {len(concat_lines)}개 항목")
+        return True
+
+    def _merge_with_filter_complex(self, video_files: List[str], output_file: Path, work_dir: Path) -> subprocess.CompletedProcess:
+        """filter_complex를 사용하여 영상 병합 (전환 클립 포함 시)"""
+        # 입력 파일 인자 구성 (work_dir 기준 상대경로)
+        input_args = []
+        for vf in video_files:
+            input_args.extend(["-i", vf])
+
+        # filter_complex 구성
+        n = len(video_files)
+        filter_parts = []
+        for i in range(n):
+            filter_parts.append(f"[{i}:v][{i}:a]")
+        filter_str = "".join(filter_parts) + f"concat=n={n}:v=1:a=1[outv][outa]"
+
+        # 출력 파일을 절대 경로로 변환
+        output_abs = output_file.resolve() if hasattr(output_file, 'resolve') else Path(output_file).resolve()
+
+        cmd = [
+            self.ffmpeg_path,
+            *input_args,
+            "-filter_complex", filter_str,
+            "-map", "[outv]",
+            "-map", "[outa]",
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "23",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-y", str(output_abs)
+        ]
+
+        return subprocess.run(cmd, capture_output=True, text=True, cwd=str(work_dir))
+
+    def _merge_in_batches(self, video_files: List[str], output_file: Path, work_dir: Path) -> subprocess.CompletedProcess:
+        """파일이 많을 때 배치로 나눠서 병합"""
+        batch_size = 15  # FFmpeg 입력 제한 고려
+        temp_files = []
+
+        # 배치별로 임시 파일 생성
+        for i in range(0, len(video_files), batch_size):
+            batch = video_files[i:i + batch_size]
+            batch_num = i // batch_size + 1
+            temp_output = work_dir / f"_temp_batch_{batch_num}.mp4"
+            temp_files.append(temp_output)
+
+            print(f"    배치 {batch_num} 처리 ({len(batch)}개)...")
+            result = self._merge_with_filter_complex(batch, temp_output, work_dir)
+            if result.returncode != 0:
+                # 실패 시 임시 파일 정리
+                for tf in temp_files:
+                    if tf.exists():
+                        tf.unlink()
+                return result
+
+        # 임시 파일들을 최종 병합
+        if len(temp_files) == 1:
+            # 배치가 하나면 그냥 이름 변경
+            temp_files[0].rename(output_file)
+            result = subprocess.CompletedProcess(args=[], returncode=0)
+        else:
+            print(f"    최종 병합 ({len(temp_files)}개 배치)...")
+            temp_names = [tf.name for tf in temp_files]
+            result = self._merge_with_filter_complex(temp_names, output_file, work_dir)
+
+        # 임시 파일 정리
+        for tf in temp_files:
+            if tf.exists():
+                tf.unlink()
+
+        return result
+
     def merge_final(self) -> Optional[Path]:
         """모든 씬을 하나의 최종 영상으로 병합"""
         paths = self._get_project_paths()
@@ -4407,57 +4642,84 @@ class ComposerManager:
 
         final_path = paths["final"]
 
-        # 합성된 씬 파일 찾기 (자막 포함 버전 우선)
-        scene_files = []
-
-        # scenes.json에서 순서 가져오기
-        scenes_file = paths["scenes"] / "scenes.json"
-        if scenes_file.exists():
-            with open(scenes_file, 'r', encoding='utf-8') as f:
-                scenes = json.load(f)
-            scene_ids = [s["scene_id"] for s in scenes]
+        # concat_list.txt가 있으면 그것을 우선 사용 (전환 클립 포함)
+        concat_list_file = final_path / "concat_list.txt"
+        if concat_list_file.exists():
+            print("📝 concat_list.txt 사용 (전환 클립 포함)")
+            concat_file = concat_list_file
+            # 파일 개수 확인
+            with open(concat_file, 'r', encoding='utf-8') as f:
+                lines = [l for l in f.readlines() if l.strip()]
+            print(f"\n🎬 최종 영상 병합 ({len(lines)}개 클립)")
         else:
-            # 파일명에서 추출
-            all_files = list(final_path.glob("*_final*.mp4"))
-            scene_ids = sorted(set(f.stem.split("_")[0] for f in all_files),
-                             key=lambda x: int(x[1:]) if x[1:].isdigit() else 0)
+            # 기존 방식: scenes.json에서 순서 가져오기
+            scene_files = []
+            scenes_file = paths["scenes"] / "scenes.json"
+            if scenes_file.exists():
+                with open(scenes_file, 'r', encoding='utf-8') as f:
+                    scenes = json.load(f)
+                scene_ids = [s["scene_id"] for s in scenes]
+            else:
+                # 파일명에서 추출
+                all_files = list(final_path.glob("*_final*.mp4"))
+                scene_ids = sorted(set(f.stem.split("_")[0] for f in all_files),
+                                 key=lambda x: int(x[1:]) if x[1:].isdigit() else 0)
 
-        for scene_id in scene_ids:
-            scene_file = final_path / f"{scene_id}_final.mp4"
-            if scene_file.exists():
-                scene_files.append(scene_file)
+            for scene_id in scene_ids:
+                scene_file = final_path / f"{scene_id}_final.mp4"
+                if scene_file.exists():
+                    scene_files.append(scene_file)
 
-        if not scene_files:
-            print("❌ 합성된 씬 파일이 없습니다.")
-            print("   먼저 compose-all을 실행하세요.")
-            return None
+            if not scene_files:
+                print("❌ 합성된 씬 파일이 없습니다.")
+                print("   먼저 compose-all을 실행하세요.")
+                return None
 
-        print(f"\n🎬 최종 영상 병합 ({len(scene_files)}개 씬)")
+            print(f"\n🎬 최종 영상 병합 ({len(scene_files)}개 씬)")
 
-        # concat 파일 생성
-        concat_file = final_path / "final_concat.txt"
-        with open(concat_file, 'w', encoding='utf-8') as f:
-            for video in scene_files:
-                f.write(f"file '{video.name}'\n")
+            # concat 파일 생성
+            concat_file = final_path / "final_concat.txt"
+            with open(concat_file, 'w', encoding='utf-8') as f:
+                for video in scene_files:
+                    f.write(f"file '{video.name}'\n")
 
-        # 출력 파일
-        output_file = paths["base"] / "final_video.mp4"
+        # 출력 파일 (절대 경로로 변환)
+        output_file = (paths["base"] / "final_video.mp4").resolve()
 
         # FFmpeg 병합
-        cmd = [
-            self.ffmpeg_path,
-            "-f", "concat",
-            "-safe", "0",
-            "-i", str(concat_file),
-            "-c", "copy",
-            "-y", str(output_file)
-        ]
+        # concat_list.txt에서 파일 목록 읽기
+        with open(concat_file, 'r', encoding='utf-8') as f:
+            video_files = [line.strip().replace("file '", "").replace("'", "")
+                          for line in f.readlines() if line.strip()]
 
-        print("  병합 중...")
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        has_transitions = any('t_after_' in f for f in video_files)
 
-        if result.returncode != 0:
-            print(f"  ❌ 병합 실패: {result.stderr[:200]}")
+        if has_transitions:
+            # filter_complex 방식 사용 (전환 클립 포함 시)
+            print("  병합 중 (filter_complex)...")
+            # 모든 파일을 한번에 처리 (FFmpeg는 많은 입력 처리 가능)
+            result = self._merge_with_filter_complex(video_files, output_file, final_path)
+        else:
+            # 전환 없으면 빠른 concat demuxer 사용
+            concat_file_relative = concat_file.name
+            cmd = [
+                self.ffmpeg_path,
+                "-f", "concat",
+                "-safe", "0",
+                "-i", concat_file_relative,
+                "-c", "copy",
+                "-y", str(output_file)
+            ]
+            print("  병합 중...")
+            result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(final_path))
+
+        if result.returncode != 0 or not output_file.exists():
+            print(f"  ❌ 병합 실패")
+            if result.stderr:
+                # FFmpeg 버전 정보가 아닌 실제 오류만 출력
+                error_lines = [l for l in result.stderr.split('\n') if 'error' in l.lower() or 'Error' in l]
+                if error_lines:
+                    print(f"     {error_lines[0][:200]}")
             return None
 
         # 파일 정보 출력
@@ -4488,8 +4750,9 @@ class ComposerManager:
             print(f"\n✅ 최종 영상 생성 완료: {output_file}")
 
         # state.json 업데이트
-        self.state.update("current_phase", "completed")
-        self.state.update("files.final_video", str(output_file))
+        self.state.set("current_phase", "completed")
+        self.state.set("files.final_video", str(output_file))
+        self.state.save()
 
         return output_file
 
@@ -5282,6 +5545,9 @@ def main():
     compose_all_parser = subparsers.add_parser("compose-all", help="모든 씬 합성")
     compose_all_parser.add_argument("--no-subtitle", action="store_true", help="자막 없이 합성")
 
+    # transition-generate 명령어
+    subparsers.add_parser("transition-generate", help="섹션 전환 클립 생성 + concat_list.txt")
+
     # merge-final 명령어
     subparsers.add_parser("merge-final", help="모든 씬을 최종 영상으로 병합")
 
@@ -5470,6 +5736,10 @@ def main():
         composer = ComposerManager(state)
         with_subtitle = not getattr(args, 'no_subtitle', False)
         composer.compose_all(with_subtitle=with_subtitle)
+
+    elif args.command == "transition-generate":
+        composer = ComposerManager(state)
+        composer.transition_generate()
 
     elif args.command == "merge-final":
         composer = ComposerManager(state)

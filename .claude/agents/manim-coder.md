@@ -212,16 +212,17 @@ eq = MathTex(r"(x-1)", r"(x-2)", r"=", r"0", font_size=56)
 
 ---
 
-### 2. 한글 텍스트에는 반드시 font 지정
+### 2. 한글 텍스트에는 반드시 font 지정 + weight=BOLD 추가
 
 ```python
-# ❌ 틀림 - 한글 깨짐
+# ❌ 틀림 - 한글 깨짐, 얇은 글씨
 text = Text("안녕하세요")
 
-# ✅ 맞음
-text = Text("안녕하세요", font="Noto Sans KR")
+# ✅ 맞음 - font와 weight=BOLD 필수
+text = Text("안녕하세요", font="Noto Sans KR", weight=BOLD)
 ```
 
+**모든 Text 객체에 `weight=BOLD` 추가** (가독성 향상)
 **Visual Prompter에서 항상 `font: "Noto Sans KR"` 제공하지만, 누락 시 직접 추가**
 
 ---
@@ -600,7 +601,7 @@ obj.shift(LEFT * 6)  # 조정됨: -8 → -6 (화면 안전 영역)
 ### 절대 규칙
 
 - [ ] 모든 MathTex에 `r"..."` 사용했는가?
-- [ ] 모든 한글 Text에 `font="Noto Sans KR"` 있는가?
+- [ ] 모든 한글 Text에 `font="Noto Sans KR"`, `weight=BOLD` 있는가?
 - [ ] MathTex에 한글이 포함되어 있지 않은가?
 - [ ] 모든 ImageMobject에 `set_height()` 사용했는가? (scale 아님)
 - [ ] 에셋 경로가 `assets/...`로 시작하는가?
