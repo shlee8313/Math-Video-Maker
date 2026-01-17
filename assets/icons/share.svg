@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300">
+  <!-- Node Shadows (Dark Teal #1A9A93) - Provides subtle depth offset 4px -->
+  <circle cx="154" cy="154" r="30" fill="#1A9A93"/>
+  <circle cx="78" cy="78" r="20" fill="#1A9A93"/>
+  <circle cx="228" cy="228" r="20" fill="#1A9A93"/>
+
+  <!-- Connection Paths (Dark Teal #1A9A93) - Structure -->
+  <!-- Line 1: N1 (center) branching to N2 (top-left) -->
+  <path d="M 130 130 C 100 140, 70 120, 100 100" 
+        stroke="#1A9A93" stroke-width="12" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Line 2: N1 (center) branching to N3 (bottom-right) -->
+  <path d="M 170 170 C 200 160, 230 180, 200 200" 
+        stroke="#1A9A93" stroke-width="12" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        
+  <!-- Arrowheads (Dark Teal #1A9A93) - Indicator -->
+  <!-- Arrow 1: Pointing towards N2 (NW direction) -->
+  <path d="M 95 95 L 105 101 L 101 105 Z" fill="#1A9A93"/>
+  <!-- Arrow 2: Pointing towards N3 (SE direction) -->
+  <path d="M 205 205 L 195 199 L 199 195 Z" fill="#1A9A93"/>
+
+  <!-- Main Nodes (Teal #20B2AA) - Overlap connectors for clean joins -->
+  <!-- Central Node N1 (Larger) -->
+  <circle cx="150" cy="150" r="30" fill="#20B2AA"/>
+  <!-- Branch Node N2 -->
+  <circle cx="75" cy="75" r="20" fill="#20B2AA"/>
+  <!-- Branch Node N3 -->
+  <circle cx="225" cy="225" r="20" fill="#20B2AA"/>
+</svg>

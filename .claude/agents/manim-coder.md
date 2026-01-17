@@ -427,7 +427,7 @@ question = MathTex(r"?")
 arrow = SVGMobject("assets/icons/arrow_right.svg")
 arrow.set_height(0.8)
 
-question = SVGMobject("assets/icons/question_mark.svg")
+question = ImageMobject("assets/icons/question_mark.png")
 question.set_height(1.0)
 ```
 
@@ -448,7 +448,7 @@ question.set_height(1.0)
 
 | 파일명 | 용도 |
 |--------|------|
-| `question_mark.svg` | 물음표 ? |
+| `question_mark.png` | 물음표 ? (ImageMobject 사용) |
 | `exclamation_mark.svg` | 느낌표 ! |
 
 **체크/상태 SVG:**
@@ -474,7 +474,7 @@ question.set_height(1.0)
 
 | 파일명 | 용도 |
 |--------|------|
-| `star_filled.svg` | 채워진 별 ★ (중요) |
+| `star.svg` | 별 ★ (중요) |
 | `star_empty.svg` | 빈 별 ☆ |
 | `heart_filled.svg` | 채워진 하트 ♥ |
 | `diamond_filled.svg` | 채워진 다이아몬드 ♦ |

@@ -686,6 +686,27 @@ class ProjectManager:
         self.state.set("files.subtitles", [])
         self.state.save()
         
+        # 프로젝트별 에셋 카탈로그 초기화
+        asset_catalog_path = project_dir / "asset_catalog.md"
+        asset_catalog_content = f"""# 프로젝트 에셋 카탈로그
+
+> 이 프로젝트에서 사용하는 에셋 목록입니다.
+> `asset-check` 실행 시 자동 업데이트됩니다.
+
+**프로젝트**: {project_id}
+**제목**: {title}
+**마지막 업데이트**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+---
+
+## 사용 에셋 목록
+
+(asset-check 실행 후 업데이트됨)
+
+"""
+        with open(asset_catalog_path, 'w', encoding='utf-8') as f:
+            f.write(asset_catalog_content)
+
         print(f"✅ 프로젝트 생성 완료: {project_id}")
         print(f"   📁 출력 폴더: {project_dir}")
         print(f"   📝 제목: {title}")
@@ -698,7 +719,7 @@ class ProjectManager:
         print("📌 다음 단계:")
         print("   Claude Code에서 대본 작성을 요청하세요:")
         print(f'   "skills/script-writer.md 읽고 "{title}" 대본 작성해줘"')
-        
+
         return project_id
     
     def get_project_dir(self) -> Optional[Path]:
@@ -1701,6 +1722,361 @@ class TTSGenerator:
 
         return result
 
+    # ========================================================================
+    # 섹션별 TTS 파이프라인 (톤 일관성 보장)
+    # ========================================================================
+    # 기존 씬별 TTS는 씬마다 톤이 미세하게 달라지는 문제가 있음
+    # 섹션별 TTS → Whisper 타임스탬프 → AI 매칭 → FFmpeg 분할로 해결
+    # ========================================================================
+
+    # 섹션명 매핑 (reading_script.json의 section과 파일명)
+    SECTION_MAP = {
+        "Hook": "hook",
+        "분석": "analysis",
+        "핵심수학": "core",
+        "적용": "apply",
+        "아웃트로": "outro"
+    }
+
+    def generate_section_tts(self) -> Dict[str, Any]:
+        """Step 4a: reading_script.json에서 섹션별 TTS 생성
+
+        Returns:
+            {
+                "sections": ["hook", "analysis", "core", "apply", "outro"],
+                "files": {"hook": "hook.mp3", ...},
+                "durations": {"hook": 12.5, ...}
+            }
+        """
+        if not self.openai_client:
+            print("❌ OpenAI 클라이언트를 초기화할 수 없습니다.")
+            return {}
+
+        project_id = self.state.get("project_id", "unknown")
+        project_dir = OUTPUT_DIR / project_id
+        script_file = project_dir / "1_script" / "reading_script.json"
+        audio_dir = project_dir / "0_audio"
+        audio_dir.mkdir(parents=True, exist_ok=True)
+
+        if not script_file.exists():
+            print(f"❌ 대본 파일이 없습니다: {script_file}")
+            return {}
+
+        with open(script_file, 'r', encoding='utf-8') as f:
+            script_data = json.load(f)
+
+        sections = script_data.get("sections", [])
+        if not sections:
+            print("❌ 대본에 섹션이 없습니다.")
+            return {}
+
+        # 음성 설정
+        voice_setting = self.state.get("settings.voice", "alloy")
+        voice_name = self._extract_voice_name(voice_setting)
+
+        print(f"\n🎤 섹션별 TTS 생성 시작 (OpenAI gpt-4o-mini-tts)")
+        print(f"   음성: {voice_name}")
+        print("="*60)
+
+        result = {
+            "sections": [],
+            "files": {},
+            "durations": {}
+        }
+
+        for section in sections:
+            section_name = section.get("section", "unknown")
+            section_key = self.SECTION_MAP.get(section_name, section_name.lower())
+
+            # 섹션 tts 텍스트 추출
+            # subsections가 있으면 합치기
+            if "subsections" in section:
+                tts_texts = []
+                for sub in section["subsections"]:
+                    if sub.get("tts"):
+                        tts_texts.append(sub["tts"])
+                tts_text = " ".join(tts_texts)
+            else:
+                tts_text = section.get("tts", "")
+
+            if not tts_text:
+                print(f"   ⚠️ {section_name}: TTS 텍스트 없음, 건너뜀")
+                continue
+
+            output_file = audio_dir / f"{section_key}.mp3"
+            print(f"\n   📢 [{section_name}] → {section_key}.mp3")
+            preview = tts_text[:60] + "..." if len(tts_text) > 60 else tts_text
+            print(f"      텍스트: {preview}")
+
+            success = self._generate_openai_tts(tts_text, voice_name, output_file)
+
+            if success:
+                duration = self._get_mp3_duration(output_file)
+                result["sections"].append(section_key)
+                result["files"][section_key] = str(output_file)
+                result["durations"][section_key] = duration
+                print(f"      ✅ 완료: {duration:.1f}초")
+            else:
+                print(f"      ❌ 실패")
+
+        # 결과 저장
+        result_file = audio_dir / "section_tts_result.json"
+        with open(result_file, 'w', encoding='utf-8') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+
+        print("\n" + "="*60)
+        total_duration = sum(result["durations"].values())
+        print(f"✅ 섹션별 TTS 완료: {len(result['sections'])}개 섹션, 총 {total_duration:.1f}초")
+        print(f"   📁 결과: {result_file}")
+
+        return result
+
+    def extract_timestamps(self) -> Dict[str, Any]:
+        """Step 4b: 섹션별 MP3에서 Whisper 타임스탬프 추출
+
+        Returns:
+            {"hook": {...timestamps...}, "analysis": {...}, ...}
+        """
+        project_id = self.state.get("project_id", "unknown")
+        project_dir = OUTPUT_DIR / project_id
+        audio_dir = project_dir / "0_audio"
+
+        # section_tts_result.json 읽기
+        result_file = audio_dir / "section_tts_result.json"
+        if not result_file.exists():
+            print(f"❌ 섹션 TTS 결과 파일이 없습니다: {result_file}")
+            print("   먼저 'python math_video_pipeline.py tts-sections' 실행하세요.")
+            return {}
+
+        with open(result_file, 'r', encoding='utf-8') as f:
+            tts_result = json.load(f)
+
+        print(f"\n📊 Whisper 타임스탬프 추출 시작")
+        print("="*60)
+
+        all_timestamps = {}
+
+        for section_key in tts_result.get("sections", []):
+            audio_file = Path(tts_result["files"].get(section_key, ""))
+
+            if not audio_file.exists():
+                print(f"   ⚠️ {section_key}: 오디오 파일 없음")
+                continue
+
+            print(f"\n   📢 [{section_key}]")
+
+            # Whisper 분석
+            whisper_result = self._transcribe_with_whisper(audio_file, "")
+
+            if whisper_result and whisper_result.get("segments"):
+                all_timestamps[section_key] = whisper_result
+
+                # 개별 타임스탬프 파일 저장
+                timestamp_file = audio_dir / f"{section_key}_timestamps.json"
+                with open(timestamp_file, 'w', encoding='utf-8') as f:
+                    json.dump(whisper_result, f, ensure_ascii=False, indent=2)
+                print(f"      ✅ {len(whisper_result['segments'])}개 세그먼트 추출")
+                print(f"      📁 저장: {timestamp_file.name}")
+            else:
+                print(f"      ❌ Whisper 분석 실패")
+
+        print("\n" + "="*60)
+        print(f"✅ 타임스탬프 추출 완료: {len(all_timestamps)}개 섹션")
+
+        return all_timestamps
+
+    def split_audio_by_scenes(self) -> Dict[str, str]:
+        """Step 4d: split_points.json 기반으로 FFmpeg로 씬별 오디오 분할
+
+        Returns:
+            {"s1": "s1.mp3", "s2": "s2.mp3", ...}
+        """
+        import subprocess
+
+        project_id = self.state.get("project_id", "unknown")
+        project_dir = OUTPUT_DIR / project_id
+        audio_dir = project_dir / "0_audio"
+
+        # split_points_*.json 파일들 찾기
+        split_files = list(audio_dir.glob("split_points_*.json"))
+
+        if not split_files:
+            print(f"❌ split_points 파일이 없습니다.")
+            print("   audio-splitter 에이전트를 먼저 실행하세요.")
+            return {}
+
+        print(f"\n✂️ 씬별 오디오 분할 시작 (FFmpeg)")
+        print("="*60)
+
+        result = {}
+        total_scenes = 0
+
+        for split_file in sorted(split_files):
+            with open(split_file, 'r', encoding='utf-8') as f:
+                split_data = json.load(f)
+
+            section = split_data.get("section", "unknown")
+            source_file = audio_dir / split_data.get("source_file", "")
+            splits = split_data.get("splits", [])
+
+            if not source_file.exists():
+                print(f"   ⚠️ [{section}] 소스 파일 없음: {source_file}")
+                continue
+
+            print(f"\n   📂 [{section}] {len(splits)}개 씬 분할")
+
+            for split in splits:
+                scene_id = split.get("scene_id", "")
+                start = split.get("start", 0)
+                end = split.get("end", 0)
+                duration = end - start
+
+                if duration <= 0:
+                    print(f"      ⚠️ {scene_id}: 유효하지 않은 구간 ({start:.2f} ~ {end:.2f})")
+                    continue
+
+                output_file = audio_dir / f"{scene_id}.mp3"
+
+                # FFmpeg로 분할
+                cmd = [
+                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                    "-i", str(source_file),
+                    "-ss", f"{start:.3f}",
+                    "-t", f"{duration:.3f}",
+                    "-c:a", "libmp3lame", "-q:a", "2",
+                    str(output_file)
+                ]
+
+                try:
+                    subprocess.run(cmd, check=True, capture_output=True)
+                    actual_duration = self._get_mp3_duration(output_file)
+                    result[scene_id] = str(output_file)
+                    total_scenes += 1
+                    print(f"      ✅ {scene_id}: {actual_duration:.1f}초 ({start:.2f}~{end:.2f})")
+                except subprocess.CalledProcessError as e:
+                    print(f"      ❌ {scene_id}: FFmpeg 오류 - {e.stderr.decode() if e.stderr else str(e)}")
+                except Exception as e:
+                    print(f"      ❌ {scene_id}: {e}")
+
+        # 분할 완료 후 씬별 timing.json 생성
+        print(f"\n   📝 씬별 timing.json 생성 중...")
+        self._generate_scene_timings_from_splits(audio_dir, split_files)
+
+        print("\n" + "="*60)
+        print(f"✅ 오디오 분할 완료: {total_scenes}개 씬")
+
+        if result:
+            # state 업데이트
+            self.state.update_tts_completed(project_id, list(result.values()))
+
+        return result
+
+    def _generate_scene_timings_from_splits(self, audio_dir: Path, split_files: List[Path]):
+        """분할된 씬별 오디오에 대해 timing.json 생성"""
+        project_id = self.state.get("project_id", "unknown")
+        project_dir = OUTPUT_DIR / project_id
+
+        for split_file in split_files:
+            with open(split_file, 'r', encoding='utf-8') as f:
+                split_data = json.load(f)
+
+            section = split_data.get("section", "")
+            timestamp_file = audio_dir / f"{section}_timestamps.json"
+
+            # 섹션 타임스탬프 로드
+            section_segments = []
+            if timestamp_file.exists():
+                with open(timestamp_file, 'r', encoding='utf-8') as f:
+                    ts_data = json.load(f)
+                    section_segments = ts_data.get("segments", [])
+
+            for split in split_data.get("splits", []):
+                scene_id = split.get("scene_id", "")
+                start = split.get("start", 0)
+                end = split.get("end", 0)
+                audio_file = audio_dir / f"{scene_id}.mp3"
+
+                if not audio_file.exists():
+                    continue
+
+                # 해당 구간의 세그먼트 추출 (상대 시간으로 변환)
+                scene_segments = []
+                for seg in section_segments:
+                    seg_start = seg.get("start", 0)
+                    seg_end = seg.get("end", 0)
+                    # 겹치는 세그먼트 찾기
+                    if seg_end > start and seg_start < end:
+                        relative_start = max(0, seg_start - start)
+                        relative_end = min(end - start, seg_end - start)
+                        scene_segments.append({
+                            "text": seg.get("text", ""),
+                            "start": relative_start,
+                            "end": relative_end,
+                            "duration": relative_end - relative_start
+                        })
+
+                # timing.json 생성
+                duration = self._get_mp3_duration(audio_file)
+                timing_data = {
+                    "scene_id": scene_id,
+                    "voice": self.state.get("settings.voice", "alloy"),
+                    "total_duration": duration,
+                    "sentence_count": len(scene_segments),
+                    "sentences": [
+                        {
+                            "sentence_id": f"{scene_id}_{i+1}",
+                            "sentence_index": i+1,
+                            "text": seg["text"],
+                            "start": seg["start"],
+                            "end": seg["end"],
+                            "duration": seg["duration"]
+                        }
+                        for i, seg in enumerate(scene_segments)
+                    ],
+                    "audio_files": [str(audio_file)],
+                    "created_at": datetime.now().isoformat(),
+                    "method": "section_split"
+                }
+
+                timing_file = audio_dir / f"{scene_id}_timing.json"
+                with open(timing_file, 'w', encoding='utf-8') as f:
+                    json.dump(timing_data, f, ensure_ascii=False, indent=2)
+
+        print(f"      ✅ timing.json 파일 생성 완료")
+
+    def run_tts_pipeline(self) -> bool:
+        """전체 섹션별 TTS 파이프라인 실행 (tts-sections → tts-timestamps)
+
+        Note: tts-split은 audio-splitter 에이전트 실행 후 별도 호출 필요
+        """
+        print("\n" + "="*60)
+        print("🎬 섹션별 TTS 파이프라인 시작")
+        print("="*60)
+
+        # Step 4a: 섹션별 TTS 생성
+        print("\n📌 Step 4a: 섹션별 TTS 생성")
+        tts_result = self.generate_section_tts()
+        if not tts_result.get("sections"):
+            print("❌ 섹션별 TTS 생성 실패")
+            return False
+
+        # Step 4b: Whisper 타임스탬프 추출
+        print("\n📌 Step 4b: Whisper 타임스탬프 추출")
+        timestamps = self.extract_timestamps()
+        if not timestamps:
+            print("❌ 타임스탬프 추출 실패")
+            return False
+
+        print("\n" + "="*60)
+        print("✅ TTS 파이프라인 1단계 완료!")
+        print()
+        print("📌 다음 단계:")
+        print("   1. audio-splitter 에이전트 호출 (섹션별 병렬)")
+        print("   2. 완료 후: python math_video_pipeline.py tts-split")
+        print("="*60)
+
+        return True
+
     def verify_sync(self, scene_id: Optional[str] = None) -> dict:
         """대본(scenes.json)과 TTS 녹음(timing.json) 동기화 검증
 
@@ -2493,6 +2869,8 @@ class AssetManager:
             result = self._check_local_only(required_assets, resolved_assets)
             # scenes.json 업데이트
             self._update_scenes_with_extensions(scenes_file, scenes, resolved_assets)
+            # 프로젝트별 카탈로그 업데이트
+            self.update_project_catalog(result.get("available", []), required_assets)
             return result
 
         # 3. Supabase에서 보유 목록 조회
@@ -2591,6 +2969,9 @@ class AssetManager:
 
         # 6. scenes.json 업데이트 (확장자 반영)
         self._update_scenes_with_extensions(scenes_file, scenes, resolved_assets)
+
+        # 7. 프로젝트별 카탈로그 업데이트
+        self.update_project_catalog(available, required_assets)
 
         return {"available": available, "missing": missing, "downloaded": downloaded}
 
@@ -2883,8 +3264,105 @@ class AssetManager:
         with open(catalog_path, 'w', encoding='utf-8') as f:
             f.write("\n".join(lines))
 
-        print(f"\n📋 카탈로그 업데이트: {catalog_path}")
+        print(f"\n📋 전역 카탈로그 업데이트: {catalog_path}")
         print(f"   - 총 {len(assets)}개 에셋 등록")
+
+        return True
+
+    def update_project_catalog(self, available_assets: List[str], required_assets: dict = None) -> bool:
+        """
+        프로젝트별 에셋 카탈로그 업데이트
+
+        Args:
+            available_assets: 사용 가능한 에셋 경로 목록
+            required_assets: 에셋별 상세 정보 (scenes 등)
+        """
+        project_dir = self.get_project_dir()
+        if not project_dir:
+            return False
+
+        catalog_path = project_dir / "asset_catalog.md"
+        title = self.state.get("title", "Unknown")
+        project_id = self.state.get("project_id", "Unknown")
+
+        # 카테고리별 분류
+        categories = {
+            "characters": [],
+            "objects": [],
+            "icons": [],
+            "metaphors": []
+        }
+
+        for asset_path in available_assets:
+            parts = asset_path.split("/")
+            if len(parts) >= 2:
+                cat = parts[0]
+                filename = parts[-1]
+            else:
+                cat = "objects"
+                filename = asset_path
+
+            if cat not in categories:
+                cat = "objects"
+
+            # 씬 정보 가져오기
+            base_path = asset_path.rsplit(".", 1)[0] if "." in asset_path else asset_path
+            scenes = []
+            if required_assets and base_path in required_assets:
+                scenes = required_assets[base_path].get("scenes", [])
+
+            categories[cat].append({
+                "filename": filename,
+                "path": asset_path,
+                "scenes": scenes
+            })
+
+        # Markdown 생성
+        lines = [
+            "# 프로젝트 에셋 카탈로그",
+            "",
+            "> 이 프로젝트에서 사용하는 에셋 목록입니다.",
+            "",
+            f"**프로젝트**: {project_id}",
+            f"**제목**: {title}",
+            f"**마지막 업데이트**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"**사용 에셋 수**: {len(available_assets)}개",
+            "",
+            "---",
+            "",
+        ]
+
+        category_info = {
+            "characters": "캐릭터",
+            "objects": "물체",
+            "icons": "아이콘",
+            "metaphors": "은유/비유"
+        }
+
+        for cat_key, cat_name in category_info.items():
+            cat_assets = categories.get(cat_key, [])
+            if not cat_assets:
+                continue
+
+            lines.append(f"## {cat_name} ({cat_key}/)")
+            lines.append("")
+            lines.append("| 파일명 | 사용 씬 |")
+            lines.append("|--------|---------|")
+
+            for asset in sorted(cat_assets, key=lambda x: x["filename"]):
+                scenes_str = ", ".join(asset["scenes"][:5])  # 최대 5개 씬만 표시
+                if len(asset["scenes"]) > 5:
+                    scenes_str += f" 외 {len(asset['scenes'])-5}개"
+                lines.append(f"| `{asset['filename']}` | {scenes_str} |")
+
+            lines.append("")
+
+        # 파일 저장
+        with open(catalog_path, 'w', encoding='utf-8') as f:
+            f.write("\n".join(lines))
+
+        print(f"\n📋 프로젝트 카탈로그 업데이트: {catalog_path}")
+        print(f"   - {len(available_assets)}개 에셋 등록")
 
         return True
 
@@ -3081,12 +3559,12 @@ class ImageManager:
             "cyberpunk": {
                 "base": "cyberpunk mathematical background, very dark futuristic scene, near-black base",
                 "tint": "subtle purple tint",
-                "decoration": "faint gray digital grid barely visible, ghost-like circuit patterns in light gray, very subtle gray holographic rectangles at 15% opacity, all decorative elements in muted gray",
+                "decoration": "faint gray digital grid barely visible, ghost-like circuit patterns in light gray, all decorative elements in muted gray",
             },
             "paper": {
                 "base": "paper texture background, warm beige to cream gradient, subtle paper grain texture",
                 "tint": "",
-                "decoration": "faint gray digital grid barely visible, ghost-like circuit patterns in light gray, very subtle gray holographic rectangles at 15% opacity, faint gray futuristic UI elements, barely visible tech lines and connection nodes, very faint gray mathematical formulas scattered in background like integral signs and sigma notation and partial derivatives and matrix brackets and limit expressions, all decorative elements in muted gray #BBBBBB to #CCCCCC",
+                "decoration": "faint gray digital grid barely visible, ghost-like circuit patterns in light gray, faint gray futuristic UI elements, barely visible tech lines and connection nodes, very faint gray mathematical formulas scattered in background like integral signs and sigma notation and partial derivatives and matrix brackets and limit expressions, all decorative elements in muted gray #BBBBBB to #CCCCCC",
             },
             "space": {
                 "base": "space background, deep dark space scene, near-black",
@@ -3354,40 +3832,81 @@ class RenderManager:
     def render_all(
         self,
         quality: str = "l",
-        preview: bool = False
+        preview: bool = False,
+        skip_existing: bool = True
     ) -> Dict[str, bool]:
-        """모든 씬 렌더링"""
-        
+        """모든 씬 렌더링
+
+        Args:
+            quality: 렌더링 품질 (l/m/h/k)
+            preview: 미리보기 여부
+            skip_existing: True면 이미 렌더링된 씬 건너뛰기 (기본값 True)
+        """
+
         # 렌더링 시작 상태 업데이트
         self.state.update_rendering()
-        
+
         project_dir = OUTPUT_DIR / self.state.get("project_id", "unknown")
         code_dir = project_dir / "4_manim_code"
-        
+        renders_dir = project_dir / "8_renders"
+
         if not code_dir.exists():
             print(f"❌ 코드 폴더가 없습니다: {code_dir}")
             return {}
-        
+
         # 모든 Manim 파일 찾기
         code_files = list(code_dir.glob("*_manim.py"))
-        
+
         if not code_files:
             print("❌ Manim 코드 파일이 없습니다.")
             return {}
-        
-        print(f"\n🎬 총 {len(code_files)}개 씬 렌더링 시작")
-        print("="*60)
-        
-        results = {}
-        
+
+        # 이미 렌더링된 씬 확인
+        existing_renders = set()
+        if skip_existing and renders_dir.exists():
+            for render_file in renders_dir.glob("*.mp4"):
+                # s1.mp4 → s1
+                scene_id = render_file.stem
+                existing_renders.add(scene_id)
+
+        # 렌더링 대상 필터링
+        scenes_to_render = []
+        skipped = []
         for code_file in sorted(code_files):
             scene_id = code_file.stem.replace("_manim", "")
+            if skip_existing and scene_id in existing_renders:
+                skipped.append(scene_id)
+            else:
+                scenes_to_render.append(scene_id)
+
+        print(f"\n🎬 렌더링 현황")
+        print("="*60)
+        print(f"   전체 씬: {len(code_files)}개")
+        if skip_existing:
+            print(f"   이미 완료: {len(skipped)}개 (스킵)")
+            print(f"   렌더링 대상: {len(scenes_to_render)}개")
+
+        if not scenes_to_render:
+            print("\n✅ 모든 씬이 이미 렌더링되어 있습니다.")
+            return {s: True for s in skipped}
+
+        print("\n🎬 렌더링 시작")
+        print("="*60)
+
+        results = {s: True for s in skipped}  # 스킵된 씬은 성공으로 처리
+
+        for scene_id in scenes_to_render:
             success = self.render_scene(scene_id, quality, preview)
             results[scene_id] = success
-        
+
         print("\n" + "="*60)
         success_count = sum(1 for v in results.values() if v)
+        failed_count = len(results) - success_count
         print(f"✅ 렌더링 완료: {success_count}/{len(results)}개 성공")
+        if failed_count > 0:
+            failed_scenes = [s for s, v in results.items() if not v]
+            print(f"❌ 실패: {failed_count}개 - {', '.join(failed_scenes)}")
+            print(f"   재시도: python math_video_pipeline.py render-failed")
 
         # 렌더링 성공한 것이 있으면 결과물 자동 수집
         if success_count > 0:
@@ -3395,6 +3914,13 @@ class RenderManager:
             self.collect_renders()
 
         return results
+
+    def render_failed(self, quality: str = "l") -> Dict[str, bool]:
+        """실패한 씬만 재렌더링
+
+        8_renders/에 없는 씬만 렌더링합니다.
+        """
+        return self.render_all(quality=quality, preview=False, skip_existing=True)
 
     def collect_renders(self) -> Dict[str, str]:
         """media/videos/ 폴더에서 렌더링 결과물을 수집하여 8_renders/로 복사"""
@@ -3613,6 +4139,53 @@ class SceneSplitter:
         print(f"   위치: {output_dir}/")
         print(f"   예: {output_dir}/s1.json, s2.json, ...")
         print(f"\n💡 이제 Claude가 필요한 씬만 읽어 토큰을 절약합니다.")
+
+
+class SceneMerger:
+    """scenes_part1/2/3.json을 병합하여 scenes.json + 개별 파일 생성"""
+
+    def __init__(self, state: StateManager):
+        self.state = state
+
+    def merge(self):
+        """3개 파트 파일을 병합"""
+        project_id = self.state.get("project_id")
+        if not project_id:
+            print("❌ 활성 프로젝트가 없습니다.")
+            return
+
+        scenes_dir = Path(f"output/{project_id}/2_scenes")
+
+        # 3개 파트 파일 확인
+        part_files = ["scenes_part1.json", "scenes_part2.json", "scenes_part3.json"]
+        missing = [f for f in part_files if not (scenes_dir / f).exists()]
+
+        if missing:
+            print(f"❌ 누락된 파트 파일: {', '.join(missing)}")
+            return
+
+        # 병합
+        all_scenes = []
+        for part_file in part_files:
+            with open(scenes_dir / part_file, "r", encoding="utf-8") as f:
+                scenes = json.load(f)
+                all_scenes.extend(scenes)
+                print(f"   {part_file}: {len(scenes)}개 씬")
+
+        # scenes.json 저장
+        scenes_path = scenes_dir / "scenes.json"
+        with open(scenes_path, "w", encoding="utf-8") as f:
+            json.dump(all_scenes, f, ensure_ascii=False, indent=2)
+
+        # 개별 파일 저장
+        for scene in all_scenes:
+            scene_id = scene.get("scene_id", "unknown")
+            scene_file = scenes_dir / f"{scene_id}.json"
+            with open(scene_file, "w", encoding="utf-8") as f:
+                json.dump(scene, f, ensure_ascii=False, indent=2)
+
+        print(f"\n✅ 병합 완료: scenes.json ({len(all_scenes)}개 씬)")
+        print(f"✅ 개별 파일: s1.json ~ s{len(all_scenes)}.json")
 
 
 # ============================================================================
@@ -4237,18 +4810,31 @@ class ComposerManager:
 
         return None
 
-    def compose_scene(self, scene_id: str, with_subtitle: bool = True, end_padding: float = 1.0) -> Optional[Path]:
+    def compose_scene(self, scene_id: str, with_subtitle: bool = True, end_padding: float = 1.0, force: bool = False) -> Optional[Path]:
         """단일 씬 합성 (배경 + Manim + 오디오 + 자막)
 
         Args:
             scene_id: 씬 ID (예: s1, s2)
             with_subtitle: 자막 포함 여부
             end_padding: 씬 끝에 추가할 무음 패딩 (초). 마지막 프레임 유지됨.
+            force: True면 기존 파일 무시하고 재합성
         """
         paths = self._get_project_paths()
         if not paths:
             print("❌ 활성 프로젝트가 없습니다.")
             return None
+
+        # 출력 폴더 생성
+        final_path = paths["final"]
+        final_path.mkdir(parents=True, exist_ok=True)
+
+        # 이미 합성된 파일이 있으면 스킵 (force=False일 때)
+        output_file = final_path / f"{scene_id}_final.mp4"
+        if not force and output_file.exists():
+            file_size = output_file.stat().st_size
+            if file_size > 10000:  # 10KB 이상이면 유효한 파일로 간주
+                print(f"  ⏭️  {scene_id} 이미 존재 (스킵)")
+                return output_file
 
         print(f"\n🎬 {scene_id} 합성 시작...")
 
@@ -4286,9 +4872,6 @@ class ComposerManager:
             print(f"  🖼️  Background: {bg_file.name}")
         if subtitle_file and subtitle_file.exists():
             print(f"  📝 Subtitle: {subtitle_file.name}")
-
-        # 출력 파일 경로
-        output_file = final_path / f"{scene_id}_final.mp4"
 
         # 자막 필터 준비 (문장 단위, 화면 맨 아래 배치)
         # MarginV=15: 화면 아래 여유
@@ -4412,6 +4995,16 @@ class ComposerManager:
         if failed:
             print(f"❌ 실패: {len(failed)}개 ({', '.join(failed)})")
 
+        # state.json 업데이트
+        if composed:
+            composed_files = [str(p) for p in composed]
+            self.state.set("files.composed", composed_files)
+            # 모든 씬이 성공했으면 phase 업데이트
+            if len(composed) == len(scene_ids):
+                self.state.set("current_phase", "composed")
+            self.state.save()
+            print(f"📝 state.json 업데이트 완료")
+
         return composed
 
     def transition_generate(self) -> bool:
@@ -4464,7 +5057,7 @@ class ComposerManager:
         for t in transitions:
             scene_id = t["after_scene"]
             text = t["text"]
-            duration = t.get("duration", 2)
+            duration = t.get("duration", 3)
 
             output_file = final_path / f"t_after_{scene_id}.mp4"
             print(f"  {scene_id} 뒤 전환: \"{text}\"")
@@ -4476,11 +5069,7 @@ class ComposerManager:
             escaped_text = text.replace("'", "\\'").replace(":", "\\:")
 
             # 비디오 필터: 텍스트 + 페이드인/아웃
-            # fade=in:0:12 (0.5초 = 12프레임 @24fps), fade=out:36:12 (1.5초 지점부터)
-            fade_frames = 12  # 0.5초 at 24fps
-            total_frames = int(duration * 24)
-            fade_out_start = total_frames - fade_frames
-
+            # 25fps로 통일 (씬 파일들과 일치)
             vf_filter = (
                 f"drawtext=text='{escaped_text}':"
                 f"fontfile='{font_path}':"
@@ -4494,7 +5083,7 @@ class ComposerManager:
             cmd = [
                 self.ffmpeg_path,
                 "-f", "lavfi",
-                "-i", f"color=c={colors['bg']}:s={width}x{height}:d={duration}:r=24",
+                "-i", f"color=c={colors['bg']}:s={width}x{height}:d={duration}:r=25",
                 "-f", "lavfi",
                 "-i", f"anullsrc=r=44100:cl=stereo",
                 "-t", str(duration),
@@ -4633,6 +5222,93 @@ class ComposerManager:
 
         return result
 
+    def _add_bgm_to_video(self, video_path: Path, video_duration: float = 0) -> Optional[Path]:
+        """최종 영상에 BGM 추가 (랜덤 선택, 작은 볼륨)
+
+        Args:
+            video_path: 원본 영상 경로
+            video_duration: 영상 길이 (초), 0이면 자동 감지
+
+        Returns:
+            BGM이 추가된 영상 경로, 실패 시 None
+        """
+        import random
+
+        # BGM 폴더 확인
+        bgm_dir = Path("C:/PROJECT/Math-Video-Maker/BGM")
+        if not bgm_dir.exists():
+            print("   ⚠️ BGM 폴더가 없습니다. BGM 없이 진행합니다.")
+            return None
+
+        # BGM 파일 목록
+        bgm_files = list(bgm_dir.glob("*.mp3"))
+        if not bgm_files:
+            print("   ⚠️ BGM 파일이 없습니다. BGM 없이 진행합니다.")
+            return None
+
+        # 랜덤 BGM 선택
+        bgm_file = random.choice(bgm_files)
+        print(f"\n🎵 BGM 추가 중...")
+        print(f"   선택된 BGM: {bgm_file.name}")
+
+        # 영상 길이 확인
+        if video_duration <= 0:
+            probe_cmd = [
+                self.ffprobe_path,
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "json",
+                str(video_path)
+            ]
+            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+            if probe_result.returncode == 0:
+                info = json.loads(probe_result.stdout)
+                video_duration = float(info.get("format", {}).get("duration", 0))
+
+        if video_duration <= 0:
+            print("   ⚠️ 영상 길이를 확인할 수 없습니다.")
+            return None
+
+        # 출력 파일 경로
+        output_path = video_path.parent / f"{video_path.stem}_bgm.mp4"
+
+        # FFmpeg로 BGM 믹싱
+        # -stream_loop -1: BGM 무한 루프
+        # volume=0.08: 원본의 8% 볼륨 (매우 작게)
+        # amix: 오디오 믹싱
+        cmd = [
+            self.ffmpeg_path,
+            "-y",
+            "-i", str(video_path),
+            "-stream_loop", "-1",
+            "-i", str(bgm_file),
+            "-filter_complex",
+            f"[1:a]volume=0.03[bgm];[0:a][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+            "-map", "0:v",
+            "-map", "[aout]",
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-t", str(video_duration),
+            str(output_path)
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode == 0 and output_path.exists():
+            # 원본 삭제하고 BGM 버전으로 교체
+            video_path.unlink()
+            output_path.rename(video_path)
+            print(f"   ✅ BGM 추가 완료 (볼륨: 3%)")
+            return video_path
+        else:
+            print(f"   ⚠️ BGM 추가 실패, 원본 유지")
+            if result.stderr:
+                error_lines = [l for l in result.stderr.split('\n') if 'error' in l.lower()]
+                if error_lines:
+                    print(f"      {error_lines[0][:100]}")
+            return None
+
     def merge_final(self) -> Optional[Path]:
         """모든 씬을 하나의 최종 영상으로 병합"""
         paths = self._get_project_paths()
@@ -4746,8 +5422,15 @@ class ComposerManager:
             print(f"   📁 파일: {output_file}")
             print(f"   ⏱️  길이: {mins}분 {secs}초")
             print(f"   💾 크기: {size_mb:.1f} MB")
+            video_duration = duration
         else:
             print(f"\n✅ 최종 영상 생성 완료: {output_file}")
+            video_duration = 0
+
+        # BGM 추가
+        bgm_result = self._add_bgm_to_video(output_file, video_duration)
+        if bgm_result:
+            output_file = bgm_result
 
         # state.json 업데이트
         self.state.set("current_phase", "completed")
@@ -5251,8 +5934,21 @@ def print_help():
                 --scene s1         씬 ID (필수)
                 --text "텍스트"    나레이션 텍스트 (필수)
 
-  tts-all       모든 씬 TTS 생성
+  tts-all       모든 씬 TTS 생성 (기존 방식 - 씬별)
                 (텍스트 소스: 2_narration/ 우선, 없으면 scenes.json)
+
+  ─── 섹션별 TTS 파이프라인 (권장 - 톤 일관성 보장) ───
+  tts-sections  섹션별 TTS 생성 (Step 4a)
+                reading_script.json → hook.mp3, analysis.mp3, core.mp3, ...
+
+  tts-timestamps Whisper 타임스탬프 추출 (Step 4b)
+                섹션별 MP3 → hook_timestamps.json, ...
+
+  tts-pipeline  섹션별 TTS + 타임스탬프 한번에 실행 (Step 4a+4b)
+
+  tts-split     씬별 오디오 분할 (Step 4d)
+                split_points_*.json → s1.mp3, s2.mp3, ...
+                ⚠️ audio-splitter 에이전트 실행 후 호출
 
   narration-extract  씬에서 narration_display 추출 (Narration Designer용)
                      --scenes s1,s2,s3  추출할 씬 ID (쉼표 구분, 생략시 전체)
@@ -5276,6 +5972,10 @@ def print_help():
 
   render-all    모든 씬 렌더링
                 --quality l        품질 (l/m/h/k)
+
+  render-failed 실패한 씬만 재렌더링
+                --quality l        품질 (l/m/h/k)
+                8_renders/에 없는 씬만 렌더링
 
   render-collect 렌더링 결과물 수집
                 media/videos/에서 8_renders/로 파일 복사
@@ -5459,6 +6159,12 @@ def main():
     # tts-export 명령어 (외부 녹음용 텍스트 내보내기)
     subparsers.add_parser("tts-export", help="외부 녹음용 텍스트 JSON 내보내기")
 
+    # 섹션별 TTS 파이프라인 명령어들
+    subparsers.add_parser("tts-sections", help="섹션별 TTS 생성 (Step 4a)")
+    subparsers.add_parser("tts-timestamps", help="Whisper 타임스탬프 추출 (Step 4b)")
+    subparsers.add_parser("tts-pipeline", help="섹션별 TTS + 타임스탬프 한번에 (Step 4a+4b)")
+    subparsers.add_parser("tts-split", help="씬별 오디오 분할 (Step 4d)")
+
     # audio-check 명령어 (외부 녹음 파일 확인)
     subparsers.add_parser("audio-check", help="외부 녹음 파일 누락 확인")
 
@@ -5489,6 +6195,12 @@ def main():
                                    choices=["l", "m", "h", "k"],
                                    help="렌더링 품질")
     
+    # render-failed 명령어
+    render_failed_parser = subparsers.add_parser("render-failed", help="실패한 씬만 재렌더링 (8_renders/에 없는 씬)")
+    render_failed_parser.add_argument("--quality", "-q", default="l",
+                                      choices=["l", "m", "h", "k"],
+                                      help="렌더링 품질")
+
     # render-script 명령어
     subparsers.add_parser("render-script", help="렌더링 스크립트 생성")
 
@@ -5553,6 +6265,9 @@ def main():
 
     # split-scenes 명령어
     subparsers.add_parser("split-scenes", help="scenes.json을 개별 씬 파일로 분할 (토큰 절약)")
+
+    # merge-scenes 명령어
+    subparsers.add_parser("merge-scenes", help="scenes_part1/2/3.json을 병합하여 scenes.json 생성")
 
     # narration-extract 명령어 (Narration Designer용)
     narration_extract_parser = subparsers.add_parser("narration-extract", help="씬에서 narration_display 추출 (Narration Designer용)")
@@ -5636,6 +6351,22 @@ def main():
         tts = TTSGenerator(state)
         tts.export_texts()
 
+    elif args.command == "tts-sections":
+        tts = TTSGenerator(state)
+        tts.generate_section_tts()
+
+    elif args.command == "tts-timestamps":
+        tts = TTSGenerator(state)
+        tts.extract_timestamps()
+
+    elif args.command == "tts-pipeline":
+        tts = TTSGenerator(state)
+        tts.run_tts_pipeline()
+
+    elif args.command == "tts-split":
+        tts = TTSGenerator(state)
+        tts.split_audio_by_scenes()
+
     elif args.command == "audio-check":
         tts = TTSGenerator(state)
         tts.check_audio_files()
@@ -5667,7 +6398,11 @@ def main():
     elif args.command == "render-all":
         renderer = RenderManager(state)
         renderer.render_all(quality=args.quality, preview=False)
-    
+
+    elif args.command == "render-failed":
+        renderer = RenderManager(state)
+        renderer.render_failed(quality=args.quality)
+
     elif args.command == "render-script":
         renderer = RenderManager(state)
         renderer.generate_render_script()
@@ -5748,6 +6483,10 @@ def main():
     elif args.command == "split-scenes":
         scene_splitter = SceneSplitter(state)
         scene_splitter.split()
+
+    elif args.command == "merge-scenes":
+        scene_merger = SceneMerger(state)
+        scene_merger.merge()
 
     elif args.command == "narration-extract":
         extractor = NarrationExtractor(state)

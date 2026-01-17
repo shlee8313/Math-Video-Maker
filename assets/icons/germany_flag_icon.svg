@@ -1,0 +1,47 @@
+<svg viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg">
+  <!-- Overall subtle drop shadow for depth -->
+  <path opacity="0.15" fill="#000000" transform="translate(5, 5)" 
+        d="M 37.5 82.5 C 75 80 150 85 262.5 82.5 L 262.5 217.5 C 150 220 75 215 37.5 217.5 Z"/>
+
+  <!-- Flagpole -->
+  <g id="flagpole">
+    <!-- Pole -->
+    <rect x="30" y="70" width="5" height="160" fill="#444444"/>
+    <!-- Finial -->
+    <circle cx="32.5" cy="70" r="5" fill="#FFCC00"/>
+  </g>
+  
+  <!-- Flag Body -->
+  <g id="germany-flag">
+    
+    <!-- Stripe 3: Gold (#FFCC00) - Bottom -->
+    <path fill="#FFCC00" d="M 37.5 172.5 C 75 170 150 175 262.5 172.5 L 262.5 217.5 C 150 220 75 215 37.5 217.5 Z"/>
+    
+    <!-- Stripe 2: Red (#DD0000) - Middle -->
+    <path fill="#DD0000" d="M 37.5 127.5 C 75 125 150 130 262.5 127.5 L 262.5 172.5 C 150 175 75 170 37.5 172.5 Z"/>
+    
+    <!-- Stripe 1: Black (#000000) - Top -->
+    <path fill="#000000" d="M 37.5 82.5 C 75 80 150 85 262.5 82.5 L 262.5 127.5 C 150 130 75 125 37.5 127.5 Z"/>
+    
+    <!-- Depth/Shading Effects (Inward fold near X=75) -->
+    <g opacity="0.15" fill="#000000">
+        <!-- Shade Black -->
+        <path d="M 50 87 Q 75 84 100 87 L 100 123 Q 75 120 50 123 Z"/>
+        <!-- Shade Red -->
+        <path d="M 50 132 Q 75 129 100 132 L 100 168 Q 75 165 50 168 Z"/>
+        <!-- Shade Gold -->
+        <path d="M 50 177 Q 75 174 100 177 L 100 213 Q 75 210 50 213 Z"/>
+    </g>
+
+    <!-- Highlight Effects (Outward peak near X=200) -->
+    <g opacity="0.1" fill="#FFFFFF">
+        <!-- Highlight Black -->
+        <path d="M 180 87 Q 205 89 230 87 L 230 123 Q 205 125 180 123 Z"/>
+        <!-- Highlight Red -->
+        <path d="M 180 132 Q 205 134 230 132 L 230 168 Q 205 170 180 168 Z"/>
+        <!-- Highlight Gold -->
+        <path d="M 180 177 Q 205 179 230 177 L 230 213 Q 205 215 180 213 Z"/>
+    </g>
+    
+  </g>
+</svg>

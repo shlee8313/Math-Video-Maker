@@ -3,8 +3,8 @@
 > 이 파일은 `asset-sync` 실행 시 Supabase에서 자동 생성됩니다.
 > 수동으로 수정하지 마세요.
 
-**마지막 업데이트**: 2026-01-13 21:25:06
-**총 에셋 수**: 111개
+**마지막 업데이트**: 2026-01-15 08:24:23
+**총 에셋 수**: 133개
 
 ---
 
@@ -12,6 +12,7 @@
 
 | 파일명 | 설명 | 크기 | 태그 |
 |--------|------|------|------|
+| `crowd_rushing.png` | 몰려가는 군중 (여러 스틱맨들이 한 방향으로 달려가는 모습, 경쟁적 분위기) | 787x287 | characters, crowd_rushing |
 | `pigou_silhouette.png` | characters asset: pigou_silhouette.png | 328x907 | characters, pigou_silhouette |
 | `stickman_business.png` | characters asset: stickman_business.png | 380x982 | characters, stickman_business |
 | `stickman_casual.png` | characters asset: stickman_casual.png | 304x940 | characters, stickman_casual |
@@ -25,6 +26,7 @@
 | `stickman_sad.png` | 갇힌 운전자들 | 373x938 |  |
 | `stickman_surprised.png` | objects asset:stickman_surprised. | 728x1024 | character, stickman, emotion |
 | `stickman_thinking.png` | characters asset: stickman_thinking.png | 339x839 | characters, stickman_thinking |
+| `stickman_walking_own_path.png` | characters asset: stickman_walking_own_path.png | 479x842 | characters, stickman_walking_own_path |
 | `stickman_worried.png` | characters asset: stickman_worried.png | 382x870 | characters, stickman_worried |
 
 ## 물체 (objects/)
@@ -41,25 +43,33 @@
 | `browser_window_b.png` | 사이트 B 창 | 630x565 |  |
 | `browser_window_c.png` | 사이트 C 창 | 564x466 |  |
 | `bus_icon.png` | objects asset: bus_icon.png | 733x476 | objects, bus_icon |
+| `car_icon.png` | objects asset: car_icon.png | 669x306 | objects, car_icon |
 | `chocolate.png` | objects asset: chocolate.png | 300x574 | objects, chocolate |
 | `clock.png` | objects asset: clock.png | 718x718 | objects, clock |
 | `cookie_icon.png` | objects asset: cookie_icon.png | 408x452 | objects, cookie_icon |
 | `crowd_clicks.png` | 수천 명의 클릭 시각화 | 751x491 |  |
+| `crowd_rushing (1).png` | objects asset: crowd_rushing (1).png | 822x286 | objects, crowd_rushing (1) |
+| `crowd_rushing.png` | objects asset: crowd_rushing.png | 787x287 | objects, crowd_rushing |
 | `data_collection.png` | objects asset: data_collection.png | 282x683 | objects, data_collection |
 | `esl_display.png` | objects asset: esl_display.png | 544x446 | objects, esl_display |
 | `eye_icon.png` | objects asset: eye_icon.png | 761x423 | objects, eye_icon |
 | `glasses.png` | objects asset: glasses.png | 699x195 | objects, glasses |
 | `ice_cream.png` | objects asset: ice_cream.png | 272x621 | objects, ice_cream |
 | `iceberg.png` | objects asset: iceberg.png | 534x511 | objects, iceberg |
+| `job_market.png` | objects asset: job_market.png | 808x338 | objects, job_market |
 | `laptop.png` | objects asset: laptop.png | 756x490 | objects, laptop |
 | `lunchbox.png` | objects asset: lunchbox.png | 769x316 | objects, lunchbox |
 | `luxury_bag.png` | objects asset: luxury_bag.png | 640x709 | objects, luxury_bag |
 | `milk.png` | objects asset: milk.png | 415x638 | objects, milk |
 | `mountain_peak.png` | objects asset: mountain_peak.png | 652x445 | objects, mountain_peak |
+| `nyc_street.png` | objects asset: nyc_street.png | 448x414 | objects, nyc_street |
 | `paper_price_tag.png` | objects asset: paper_price_tag.png | 455x509 | objects, paper_price_tag |
 | `question_mark.png` | objects asset: question_mark.png | 382x580 | objects, question_mark |
 | `ramen.png` | objects asset: ramen.png | 398x540 | objects, ramen |
 | `ramen_icon.png` | objects asset: ramen_icon.png | 356x629 | objects, ramen_icon |
+| `road_congested.png` | objects asset: road_congested.png | 543x1024 | objects, road_congested |
+| `road_stuck.png` | objects asset: road_stuck.png | 645x442 | objects, road_stuck |
+| `seoul_cheonggyecheon.png` | objects asset: seoul_cheonggyecheon.png | 681x326 | objects, seoul_cheonggyecheon |
 | `shopping_cart.png` | objects asset: shopping_cart.png | 699x593 | objects, shopping_cart |
 | `shrug_icon.png` | objects asset: shrug_icon.png | 448x478 | objects, shrug_icon |
 | `smartphone.png` | objects asset: smartphone.png | 376x759 | objects, smartphone |
@@ -79,7 +89,9 @@
 
 | 파일명 | 설명 | 크기 | 태그 |
 |--------|------|------|------|
+| `activity_icon.svg` | icons asset: activity_icon.svg | 300x300 | icons, activity_icon |
 | `airplane.png` | icons asset: airplane.png | 876x296 | icons, airplane |
+| `airplane_icon.svg` | icons asset: airplane_icon.svg | 300x300 | icons, airplane_icon |
 | `airplane_seat.png` | icons asset: airplane_seat.png | 595x872 | icons, airplane_seat |
 | `airplane_ticket.png` | icons asset: airplane_ticket.png | 852x406 | icons, airplane_ticket |
 | `algorithm_icon.png` | icons asset: algorithm_icon.png | 702x564 | icons, algorithm_icon |
@@ -100,17 +112,22 @@
 | `calendar.png` | 달력 아이콘 | 1463x1234 |  |
 | `car_icon.png` | 자동차/운전자 상징 | 878x327 |  |
 | `certificate.png` | 자격증 아이콘 | 845x592 |  |
+| `certificate_icon.svg` | icons asset: certificate_icon.svg | 300x300 | icons, certificate_icon |
 | `checkmark.svg` | icons asset: checkmark.svg | 300x300 | icons, checkmark |
+| `checkmark_green.svg` | icons asset: checkmark_green.svg | 300x300 | icons, checkmark_green |
 | `circle_empty.svg` | icons asset: circle_empty.svg | 300x300 | icons, circle_empty |
 | `circle_filled.svg` | icons asset: circle_filled.svg | 300x300 | icons, circle_filled |
 | `clock.png` | icons asset: clock.png | 718x718 | icons, clock |
+| `clock_wasted.svg` | icons asset: clock_wasted.svg | 300x300 | icons, clock_wasted |
 | `cookie_icon.png` | icons asset: cookie_icon.png | 408x452 | icons, cookie_icon |
 | `crossmark.svg` | icons asset: crossmark.svg | 300x300 | icons, crossmark |
 | `data_collection.png` | icons asset: data_collection.png | 282x683 | icons, data_collection |
 | `diamond_filled.svg` | icons asset: diamond_filled.svg | 300x300 | icons, diamond_filled |
+| `equals_sign.png` | icons asset: equals_sign.png | 711x708 | icons, equals_sign |
 | `exclamation_mark.svg` | icons asset: exclamation_mark.svg | 300x300 | icons, exclamation_mark |
 | `eye_icon.png` | icons asset: eye_icon.png | 761x423 | icons, eye_icon |
 | `germany_flag.png` | 독일 표시 | 709x609 |  |
+| `germany_flag_icon.svg` | icons asset: germany_flag_icon.svg | 300x300 | icons, germany_flag_icon |
 | `glasses.png` | icons asset: glasses.png | 699x195 | icons, glasses |
 | `greater_equal_emphasis.svg` | icons asset: greater_equal_emphasis.svg | 300x300 | icons, greater_equal_emphasis |
 | `heart_filled.svg` | icons asset: heart_filled.svg | 300x300 | icons, heart_filled |
@@ -121,15 +138,18 @@
 | `less_equal_emphasis.svg` | icons asset: less_equal_emphasis.svg | 300x300 | icons, less_equal_emphasis |
 | `lightbulb.svg` | icons asset: lightbulb.svg | 300x300 | icons, lightbulb |
 | `lightning.svg` | icons asset: lightning.svg | 300x300 | icons, lightning |
+| `location_pin.svg` | icons asset: location_pin.svg | 300x300 | icons, location_pin |
 | `mountain_peak.png` | icons asset: mountain_peak.png | 652x445 | icons, mountain_peak |
 | `not_equal_emphasis.svg` | icons asset: not_equal_emphasis.svg | 300x300 | icons, not_equal_emphasis |
+| `plus_sign.svg` | icons asset: plus_sign.svg | 300x300 | icons, plus_sign |
 | `question_mark.png` | icons asset: question_mark.png | 382x580 | icons, question_mark |
-| `question_mark.svg` | icons asset: question_mark.svg | 300x300 | icons, question_mark |
 | `ramen_icon.png` | icons asset: ramen_icon.png | 356x629 | icons, ramen_icon |
+| `scale_balance.svg` | icons asset: scale_balance.svg | 300x300 | icons, scale_balance |
+| `scholar_icon.svg` | icons asset: scholar_icon.svg | 300x300 | icons, scholar_icon |
+| `share.svg` | icons asset: share.svg | 300x300 | icons, share |
 | `shrug_icon.png` | icons asset: shrug_icon.png | 448x478 | icons, shrug_icon |
 | `star.svg` | icons asset: star.svg | 300x300 | icons, star |
 | `star_empty.svg` | icons asset: star_empty.svg | 300x300 | icons, star_empty |
-| `star_filled.svg` | icons asset: star_filled.svg | 300x300 | icons, star_filled |
 | `usa_flag.png` | 미국 표시 | 707x601 |  |
 | `user_profile.svg` | icons asset: user_profile.svg | 300x300 | icons, user_profile |
 | `warning_triangle.svg` | icons asset: warning_triangle.svg | 300x300 | icons, warning_triangle |

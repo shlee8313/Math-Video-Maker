@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300">
+    <defs>
+        <clipPath id="bookPageClip">
+            <path d="M50 80 H250 V220 H50 Z"/>
+        </clipPath>
+    </defs>
+    
+    <!-- Open Book - Navy Blue Outline/Cover -->
+    <g fill="#1E3A5F">
+        <!-- Left Cover/Spine -->
+        <path d="M40 80 C30 80 20 90 20 100 V210 C20 220 30 230 40 230 H150 V80 H40 Z"/>
+        <!-- Right Cover -->
+        <path d="M150 80 H260 C270 80 280 90 280 100 V210 C280 220 270 230 260 230 H150 V80 Z"/>
+    </g>
+    
+    <!-- Book Pages - Off White simulation (subtle grey) -->
+    <g fill="#F0F0F0" clip-path="url(#bookPageClip)">
+        <!-- Pages Block -->
+        <rect x="50" y="80" width="200" height="140"/>
+        <!-- Center Fold/Shadow -->
+        <rect x="148" y="80" width="4" height="140" fill="#CCCCCC"/>
+        <!-- Page Detail Lines -->
+        <path d="M55 95 H140 M55 110 H140 M160 95 H245 M160 110 H245" stroke="#E0E0E0" stroke-width="3" stroke-linecap="round"/>
+        <path d="M55 125 H140 M55 140 H140 M160 125 H245 M160 140 H245" stroke="#E0E0E0" stroke-width="3" stroke-linecap="round"/>
+    </g>
+
+    <!-- Graduation Mortarboard Cap -->
+    <g>
+        <!-- Hat Brim/Base - Navy Blue -->
+        <path d="M100 65 H200 C205 65 210 70 210 75 V85 C210 90 205 95 200 95 H100 C95 95 90 90 90 85 V75 C90 70 95 65 100 65 Z" fill="#1E3A5F"/>
+        <!-- Hat Board - Navy Blue -->
+        <rect x="70" y="30" width="160" height="30" fill="#1E3A5F"/>
+        <!-- Hat Connection Cube (Optional Detail) -->
+        <rect x="145" y="60" width="10" height="5" fill="#1E3A5F"/>
+    </g>
+
+    <!-- Golden Tassel -->
+    <g fill="#D4AF37">
+        <!-- Tassel Knot/Button -->
+        <circle cx="150" cy="45" r="5"/>
+        <!-- Tassel Cord -->
+        <rect x="148" y="50" width="4" height="15"/>
+        <!-- Tassel Threads -->
+        <path d="M150 65 L155 75 L145 75 Z" fill="#D4AF37"/>
+        <path d="M150 75 V95 H160 V75 Z M150 75 V95 H140 V75 Z" />
+    </g>
+
+    <!-- Rolled Diploma Scroll -->
+    <g transform="translate(190, 200) rotate(20)">
+        <!-- Scroll Paper (Light Gold/Cream) -->
+        <rect x="0" y="0" width="80" height="20" rx="5" ry="5" fill="#FFFACD"/>
+        <!-- Scroll End Caps (Navy Blue) -->
+        <rect x="-10" y="-5" width="10" height="30" rx="3" ry="3" fill="#1E3A5F"/>
+        <rect x="80" y="-5" width="10" height="30" rx="3" ry="3" fill="#1E3A5F"/>
+        
+        <!-- Red Seal (simulating a wax seal, centered) -->
+        <circle cx="40" cy="10" r="6" fill="#CC0000"/>
+        <!-- Gold Star on Seal -->
+        <path d="M40 7 L41.5 10.5 L45 10.5 L42.25 12.5 L43.5 16 L40 14 L36.5 16 L37.75 12.5 L35 10.5 L38.5 10.5 Z" fill="#D4AF37"/>
+    </g>
+
+    <!-- Academic Spectacles (Overlaying the book) -->
+    <g fill="none" stroke="#D4AF37" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+        <!-- Left Lens -->
+        <circle cx="110" cy="160" r="25"/>
+        <!-- Right Lens -->
+        <circle cx="190" cy="160" r="25"/>
+        <!-- Bridge -->
+        <path d="M135 160 H165"/>
+        <!-- Temple Arm (Left, going slightly off-page for modern look) -->
+        <path d="M85 160 H70"/>
+    </g>
+
+</svg>

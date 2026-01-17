@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300">
+    <!-- Main Map Pin Body: Classic teardrop shape using main red color #E74C3C -->
+    <path fill="#E74C3C" 
+          d="M 150,255 
+             C 175,220 215,170 215,115
+             C 215,65 185,40 150,40 
+             C 115,40 85,65 85,115 
+             C 85,170 125,220 150,255 Z"/>
+
+    <!-- Subtle 3D Shadow Accent: Darker red accent #C0392B on the lower right curve -->
+    <path fill="#C0392B"
+          d="M 150,255 C 180,225 210,175 210,120 C 205,125 195,145 185,165 C 175,185 155,220 150,255 Z"/>
+
+    <!-- Subtle 3D Highlight Accent: White highlight on the top curve -->
+    <path fill="#FFFFFF" opacity="0.6"
+          d="M 115 55 A 65 65 0 0 1 185 55 L 175 75 A 55 55 0 0 0 125 75 Z"/>
+
+    <!-- Circular Center Cutout (White) -->
+    <circle cx="150" cy="105" r="32" fill="#FFFFFF"/>
+    
+    <!-- Inner Dot (Main Red #E74C3C) -->
+    <circle cx="150" cy="105" r="12" fill="#E74C3C"/>
+</svg>

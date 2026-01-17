@@ -122,6 +122,29 @@
 > ⚠️ **직접 생성 금지!** 대본의 `tts` 필드에서 해당 구간을 추출하여 배치합니다.
 > Script Writer가 이미 숫자/기호를 한글 발음으로 변환해 두었습니다.
 
+### ⚠️ 씬 경계 Pause 규칙 (Script Writer가 이미 삽입)
+
+> **`...` (줄임표)는 Script Writer가 `reading_script.json`의 `tts` 필드에 이미 삽입해 두었습니다.**
+> **Scene Director는 줄임표를 추가하거나 수정하지 않고, 그대로 추출하여 배치만 합니다.**
+
+**예시 (reading_script.json의 tts):**
+```
+"여러분, 루트 구가 뭔지 아시나요... 사실 이건, 숫자가 아니라 질문입니다..."
+```
+
+**Scene Director가 씬 분할 시:**
+```json
+// s1
+{"narration_tts": "여러분, 루트 구가 뭔지 아시나요..."}
+
+// s2
+{"narration_tts": "사실 이건, 숫자가 아니라 질문입니다..."}
+```
+
+> `...`는 문장 끝에 이미 있으므로, 씬의 `narration_tts`도 자연스럽게 `...`로 끝납니다.
+
+> ⚠️ **[pause] 태그 사용 금지** - OpenAI TTS가 지원하지 않아 텍스트로 읽어버림
+
 ---
 
 ## semantic_goal 작성법

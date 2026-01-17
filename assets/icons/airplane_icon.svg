@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300">
+  <!-- Motion lines suggesting speed/flight. Using white for standard contrast in movement icons. -->
+  <g stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" fill="none" opacity="0.8">
+    <path d="M 10 180 L 40 185"/>
+    <path d="M 0 195 L 30 200"/>
+  </g>
+
+  <g transform="translate(0, 0)">
+    
+    <!-- 1. Fuselage (#87CEEB) -->
+    <path fill="#87CEEB" d="M 30 155 C 45 130, 250 130, 280 145 L 275 150 C 250 165, 45 170, 30 155 Z"/>
+
+    <!-- 2. Wings and Engine -->
+    <g fill="#87CEEB">
+      <!-- Main Wing, swept back -->
+      <path d="M 130 155 L 230 170 L 225 180 L 125 165 Z"/>
+      <!-- Engine Nacelle -->
+      <path d="M 160 175 L 195 180 Q 185 195, 155 185 Z"/>
+    </g>
+
+    <!-- 3. Tail Fin Group -->
+    <g>
+      <!-- Vertical Stabilizer (#87CEEB) -->
+      <path fill="#87CEEB" d="M 255 132 L 270 140 L 265 90 L 240 120 Z"/>
+      
+      <!-- Navy Accent on Fin (#1E3A5F) -->
+      <path fill="#1E3A5F" d="M 260 95 L 268 135 L 255 135 L 245 110 Z"/>
+      
+      <!-- Horizontal Stabilizer (#87CEEB) -->
+      <path fill="#87CEEB" d="M 270 140 L 285 145 L 275 150 L 260 145 Z"/>
+    </g>
+    
+    <!-- Subtle Highlight along the top edge of the fuselage (White opacity for depth) -->
+    <path fill="#FFFFFF" opacity="0.4" d="M 35 150 C 50 135, 200 135, 230 138 L 230 142 C 200 138, 50 138, 35 150 Z"/>
+
+
+    <!-- 4. Windows (Navy #1E3A5F for dark contrast) -->
+    <g fill="#1E3A5F">
+      <!-- Cockpit window -->
+      <path d="M 38 145 L 55 138 L 55 148 L 38 150 Z"/>
+      <!-- Passenger windows -->
+      <circle cx="80" cy="147" r="4"/>
+      <circle cx="105" cy="146" r="4"/>
+      <circle cx="130" cy="145" r="4"/>
+      <circle cx="155" cy="144" r="4"/>
+      <circle cx="180" cy="143" r="4"/>
+      <circle cx="205" cy="142" r="4"/>
+    </g>
+
+    <!-- Engine exhaust detail accent (Navy #1E3A5F) -->
+    <path fill="#1E3A5F" d="M 190 180 L 195 185 Q 185 195, 180 190 Z"/>
+
+  </g>
+</svg>

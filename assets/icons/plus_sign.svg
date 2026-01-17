@@ -1,0 +1,29 @@
+<svg viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg">
+    
+    <!-- Define darker blue color for shadow and 3D base effect -->
+    <!-- Main color: #3498DB -->
+    <!-- Shadow color: #2980B9 -->
+    
+    <!-- Base Shadow (Slightly offset down/right for raised effect) -->
+    <circle cx="153" cy="153" r="110" fill="#2980B9"/>
+
+    <!-- Main Circular Badge -->
+    <circle cx="150" cy="150" r="110" fill="#3498DB"/>
+
+    <!-- Highlight Effect (Small highlight on top edge) -->
+    <defs>
+        <clipPath id="circleClip">
+            <circle cx="150" cy="150" r="110"/>
+        </clipPath>
+    </defs>
+    <!-- Use an offset white circle masked by the main circle to create a subtle top highlight -->
+    <circle cx="150" cy="140" r="110" fill="#FFFFFF" opacity="0.3" clip-path="url(#circleClip)"/>
+
+    <!-- Plus Symbol (Bold with rounded ends, contrasting white color) -->
+    <g fill="#FFFFFF">
+        <!-- Horizontal Bar (Length 90, Thickness 30, Rounded ends R=15) -->
+        <rect x="105" y="135" width="90" height="30" rx="15" ry="15"/>
+        <!-- Vertical Bar (Length 90, Thickness 30, Rounded ends R=15) -->
+        <rect x="135" y="105" width="30" height="90" rx="15" ry="15"/>
+    </g>
+</svg>

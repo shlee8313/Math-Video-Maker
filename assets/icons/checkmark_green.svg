@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300">
+  <defs>
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feOffset result="offOut" in="SourceAlpha" dx="0" dy="5"/>
+      <feGaussianBlur result="blurOut" in="offOut" stdDeviation="5"/>
+      <feBlend in="SourceGraphic" in2="blurOut" mode="normal"/>
+    </filter>
+  </defs>
+
+  <!-- Group for the entire icon -->
+  <g transform="translate(150, 150) scale(0.9) translate(-150, -150)">
+
+    <!-- 1. Circular Badge Base - Darker Green Shadow/Raised Effect -->
+    <circle cx="150" cy="155" r="130" fill="#27AE60"/>
+
+    <!-- 2. Main Circular Badge - Primary Green -->
+    <circle cx="150" cy="148" r="130" fill="#2ECC71"/>
+
+    <!-- 3. Checkmark Tick - White -->
+    <!-- Path optimized for a bold, centered checkmark -->
+    <path d="M 90 155 L 130 195 L 220 105 L 205 90 L 130 165 L 105 140 Z" fill="white"/>
+    
+    <!-- 4. Top-Left Shine Highlight (Subtle) -->
+    <path d="M 150 20 C 70 20 20 80 20 150 L 25 150 C 25 85 75 30 150 30 Z" fill="white" opacity="0.3"/>
+  </g>
+</svg>

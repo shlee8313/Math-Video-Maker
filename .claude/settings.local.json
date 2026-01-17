@@ -78,7 +78,14 @@
       "Bash(git push:*)",
       "Bash(git -C \"C:/PROJECT/Math-Video-Maker\" add -A)",
       "Bash(git -C \"C:/PROJECT/Math-Video-Maker\" commit -m \"$\\(cat <<''EOF''\nScene Director 분리 작업 전 백업\n\n- Sub-agents 기반 워크플로우 현재 상태\n- scene-director.md: 나레이션 규칙 포함 \\(분리 예정\\)\n- 신규 에셋: stickman 캐릭터 5종, ramen 오브젝트\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(ls:*)",
+      "Bash(grep:*)",
+      "Bash(for file in s3_manim.py s14_manim.py s25_manim.py s27_manim.py s37_manim.py s51_manim.py s58_manim.py)",
+      "Bash(do sed -i 's/SVGMobject\\(\"\"assets\\\\/icons\\\\/question_mark\\\\.png\"\"\\)/ImageMobject\\(\"\"assets\\\\/icons\\\\/question_mark.png\"\"\\)/g' \"$file\")",
+      "Bash(done)",
+      "Bash(ffprobe:*)",
+      "Bash(xargs:*)"
     ]
   }
 }

@@ -15,8 +15,8 @@
 | 3 | 씬 분할 + 나레이션 | Sub-agents (6개) | scenes.json, s#.json |
 | 3.1 | 전환 텍스트 생성 | Claude | transitions.json |
 | 3.5 | 에셋 체크 | Claude + Supabase | assets/ 폴더 |
-| 4 | TTS 생성 | OpenAI API | 0_audio/*.mp3 |
-| 4.5 | Visual Prompter | Sub-agents (30씬 배치) | s#_visual.json |
+| 4 | TTS 생성 (섹션별) | OpenAI API + Whisper + FFmpeg | 0_audio/*.mp3 |
+| 4.5 | Visual Prompter | Sub-agent (15씬 배치) | s#_visual.json |
 | 5 | Manim 코드 | Sub-agents (20씬 배치) | s#_manim.py |
 | 5.1 | 코드 검증 | Claude | 검증된 s#_manim.py |
 | 5.5 | 배경 이미지 | 외부 생성 | 9_backgrounds/ |
@@ -104,8 +104,8 @@ python math_video_pipeline.py merge-scenes
 **transitions.json 형식:**
 ```json
 [
-  {"after_scene": "s11", "text": "그래서, 얼마나 더 받을 수 있을까?", "duration": 2},
-  {"after_scene": "s36", "text": "알았다면, 이제 뭘 해야 할까?", "duration": 2}
+  {"after_scene": "s11", "text": "그래서, 얼마나 더 받을 수 있을까?", "duration": 3},
+  {"after_scene": "s36", "text": "알았다면, 이제 뭘 해야 할까?", "duration": 3}
 ]
 ```
 
@@ -127,6 +127,7 @@ python math_video_pipeline.py merge-scenes
 1. `python math_video_pipeline.py asset-check`
    - Supabase에서 보유 에셋 조회 → 로컬 다운로드
    - 누락 시 `missing_assets.json` 생성
+   - **프로젝트별 에셋 카탈로그 자동 생성** → `output/{project_id}/asset_catalog.md`
 
 2. 누락 에셋 있으면:
    - `skills/asset-prompt-writer.md` 읽기 ← **필수**
@@ -134,13 +135,57 @@ python math_video_pipeline.py merge-scenes
 
 3. 사용자: "에셋 준비 완료" → `python math_video_pipeline.py asset-sync`
 
+> 📋 **에셋 카탈로그 구조 변경**
+> - 전역 카탈로그: `skills/asset-catalog.md` (Supabase 전체 에셋, `catalog-update` 시 갱신)
+> - 프로젝트 카탈로그: `output/{project_id}/asset_catalog.md` (해당 프로젝트 사용 에셋만)
+> - 에이전트들은 프로젝트 카탈로그 참조 권장 (토큰 절약)
+
 ✅ **/clear 가능**
 
 ---
 
-## Step 4: TTS 생성
+## Step 4: TTS 생성 (섹션별 파이프라인)
 
-**OpenAI TTS (권장):**
+> ⚠️ **섹션별 TTS 생성 후 씬별 분할** - 톤 일관성 보장
+> 기존 씬별 TTS는 씬마다 톤이 미세하게 달라지는 문제가 있었음
+
+### 4a. 섹션별 TTS 생성
+```bash
+python math_video_pipeline.py tts-sections
+```
+→ `0_audio/hook.mp3`, `analysis.mp3`, `core.mp3`, `apply.mp3`, `outro.mp3`
+
+### 4b. Whisper 타임스탬프 추출
+```bash
+python math_video_pipeline.py tts-timestamps
+```
+→ `0_audio/hook_timestamps.json`, `analysis_timestamps.json`, ...
+
+> 💡 **4a + 4b 한번에**: `python math_video_pipeline.py tts-pipeline`
+
+### 4c. AI 매칭 (Claude 직접 수행)
+
+Claude가 `.claude/agents/audio-splitter.md` 가이드를 참조하여 5개 섹션의 분할 지점 매칭:
+
+1. `audio-splitter.md` 읽기
+2. 각 섹션의 timestamps.json + scenes.json의 narration_tts 비교
+3. 의미 기반 매칭으로 분할 지점 결정
+4. `split_points_{section}.json` 저장
+
+→ `0_audio/split_points_hook.json`, `split_points_analysis.json`, ...
+
+### 4d. FFmpeg 분할
+```bash
+python math_video_pipeline.py tts-split
+```
+→ `0_audio/s1.mp3`, `s2.mp3`, ... + 씬별 `s#_timing.json`
+
+---
+
+### 기존 방식 (씬별 TTS)
+
+> ⚠️ 톤 불일치 문제로 **비권장**
+
 ```bash
 python math_video_pipeline.py tts-all
 ```
@@ -159,22 +204,20 @@ python math_video_pipeline.py audio-process
 
 ---
 
-## Step 4.5: Visual Prompter (3단계)
+## Step 4.5: Visual Prompter (통합)
 
-> **30씬 배치** 단위로 에이전트 자동 호출
-
-| 단계 | 에이전트 | 역할 | 출력 |
-|------|----------|------|------|
-| 4.5a | visual-layout | 객체 배치 | s#_layout.json |
-| 4.5b | visual-animation | 시퀀스 추가 | s#_visual.json |
-| 4.5c | visual-review | 검증 | 수정된 s#_visual.json |
+> **15씬 배치** 단위로 `visual-prompter` 에이전트 호출
+> Layout + Animation + Review를 하나의 에이전트가 처리
 
 **에이전트 호출 템플릿:**
 ```
-"s{시작}부터 s{끝}까지 [Layout/Animation/Review] 작업을 수행하세요.
+"s{시작}부터 s{끝}까지 Visual Prompter 작업을 수행하세요.
 프로젝트: {project_id}
-씬 범위: s{시작} ~ s{끝}"
+입력: 2_scenes/s{n}.json, 0_audio/s{n}_timing.json
+출력: 3_visual_prompts/s{n}_visual.json"
 ```
+
+**출력**: `3_visual_prompts/s#_visual.json` (objects + sequence 포함)
 
 ✅ **/clear 가능** (전체 완료 후)
 
@@ -236,8 +279,12 @@ python math_video_pipeline.py images-check
 ## Step 6: 렌더링
 
 ```bash
-python math_video_pipeline.py render-all      # Manim 렌더링
+python math_video_pipeline.py render-all      # Manim 렌더링 (완료된 씬 자동 스킵)
+python math_video_pipeline.py render-failed   # 실패한 씬만 재렌더링
 ```
+
+> 💡 `render-all`은 `8_renders/`에 이미 있는 씬 자동 스킵
+> 실패 시 코드 수정 후 `render-failed`로 재시도
 
 ---
 
@@ -333,7 +380,9 @@ Math-Video-Maker/
 ├── .claude/agents/          # Sub-agents
 ├── assets/                  # 🔥 공용 에셋 (루트 레벨)
 ├── skills/                  # 가이드라인 문서
+│   └── asset-catalog.md     # 전역 에셋 카탈로그 (Supabase 전체)
 └── output/{project_id}/     # 프로젝트별 출력
+    ├── asset_catalog.md     # 📋 프로젝트 에셋 카탈로그 (사용 에셋만)
     ├── 0_audio/
     ├── 1_script/
     ├── 2_scenes/
@@ -375,9 +424,12 @@ Math-Video-Maker/
 | `reset --from tts_completed --force` | 단계 리셋 |
 | `merge-scenes` | 씬 파트 병합 |
 | `asset-check` / `asset-sync` | 에셋 관리 |
-| `tts-all` | TTS 생성 |
+| `tts-pipeline` | 섹션별 TTS + 타임스탬프 (권장) |
+| `tts-split` | 씬별 오디오 분할 (에이전트 후) |
+| `tts-all` | TTS 생성 (기존 씬별 방식) |
 | `validate-all` | 코드 검증 |
-| `render-all` | Manim 렌더링 |
+| `render-all` | Manim 렌더링 (완료된 씬 스킵) |
+| `render-failed` | 실패한 씬만 재렌더링 |
 | `transition-generate` | 전환 클립 생성 + concat_list.txt |
 | `compose-all` / `merge-final` | 최종 합성 |
 | `verify-sync [s#]` | 대본-TTS 동기화 검증 |
@@ -504,7 +556,7 @@ SUPABASE_KEY=your-anon-key
 ## 🚨 핵심 규칙
 
 1. **Sub-agents 사용**: Visual Prompter / Manim Coder는 별도 에이전트로 실행
-2. **배치 처리**: Visual=30씬, Manim=20씬 단위
+2. **배치 처리**: Visual=15씬, Manim=20씬 단위
 3. **에셋은 루트**: `assets/` 폴더는 모든 프로젝트 공유
 4. **캐릭터/물체는 PNG**: Manim으로 직접 그리지 않음
 5. **state.json으로 상태 추적**: 중단 후 재개 가능

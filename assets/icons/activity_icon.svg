@@ -1,0 +1,58 @@
+<svg viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg">
+  <!-- Define darker blue for subtle shadow -->
+  <defs>
+    <style>
+      .shadow { fill: #2A7FB9; }
+      .body-blue { fill: #3498DB; }
+      .accent-teal { fill: #20B2AA; }
+    </style>
+  </defs>
+
+  <!-- Subtle Shadow Layer (Offset by 4, 4) -->
+  <g transform="translate(4 4)" class="shadow">
+    <!-- Center Figure Shadow (Taller) -->
+    <rect x="130" y="80" width="40" height="140"/>
+    <circle cx="150" cy="55" r="22"/>
+    <!-- Left Figure Shadow -->
+    <rect x="92.5" y="100" width="35" height="120"/>
+    <circle cx="110" cy="80" r="20"/>
+    <!-- Right Figure Shadow -->
+    <rect x="172.5" y="100" width="35" height="120"/>
+    <circle cx="190" cy="80" r="20"/>
+    <!-- Connection Line Shadow -->
+    <path d="M 90 220 C 95 240, 205 240, 210 220 L 210 228 C 205 248, 95 248, 90 228 Z"/>
+  </g>
+
+  <!-- Main Content Layer -->
+  <g>
+    <!-- Unity Connection (Teal Accent) -->
+    <path d="M 90 220 C 95 240, 205 240, 210 220 L 210 228 C 205 248, 95 248, 90 228 Z" class="accent-teal"/>
+
+    <!-- Bodies (Blue Main Color) -->
+    <!-- Center (Taller) -->
+    <rect x="130" y="80" width="40" height="140" class="body-blue"/>
+    <!-- Left -->
+    <rect x="92.5" y="100" width="35" height="120" class="body-blue"/>
+    <!-- Right -->
+    <rect x="172.5" y="100" width="35" height="120" class="body-blue"/>
+
+    <!-- Heads (Teal Accent) -->
+    <circle cx="150" cy="55" r="22" class="accent-teal"/>
+    <circle cx="110" cy="80" r="20" class="accent-teal"/>
+    <circle cx="190" cy="80" r="20" class="accent-teal"/>
+
+    <!-- Arms (Teal Accent, Raised in celebration, rounded rectangles) -->
+    
+    <!-- Center Figure Arms (Length 50) -->
+    <rect x="124" y="80" width="12" height="50" rx="6" transform="rotate(-25 130 90)" class="accent-teal"/>
+    <rect x="164" y="80" width="12" height="50" rx="6" transform="rotate(25 170 90)" class="accent-teal"/>
+
+    <!-- Left Figure Arms (Length 40) -->
+    <rect x="89" y="100" width="12" height="40" rx="6" transform="rotate(-30 95 110)" class="accent-teal"/>
+    <rect x="119" y="100" width="12" height="40" rx="6" transform="rotate(30 125 110)" class="accent-teal"/>
+
+    <!-- Right Figure Arms (Length 40) -->
+    <rect x="169" y="100" width="12" height="40" rx="6" transform="rotate(-30 175 110)" class="accent-teal"/>
+    <rect x="199" y="100" width="12" height="40" rx="6" transform="rotate(30 205 110)" class="accent-teal"/>
+  </g>
+</svg>

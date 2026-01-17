@@ -1,0 +1,41 @@
+<svg viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg">
+    
+    <!-- Decorative Gold Border Frame (#DAA520) -->
+    <rect x="20" y="50" width="260" height="200" fill="#DAA520"/>
+
+    <!-- Certificate Paper (#FFF8DC) -->
+    <rect x="30" y="60" width="240" height="180" fill="#FFF8DC"/>
+
+    <!-- Horizontal Text Lines (Gold #DAA520) -->
+    <g fill="#DAA520">
+        <rect x="70" y="100" width="160" height="4"/>
+        <rect x="70" y="125" width="160" height="4"/>
+        <rect x="70" y="150" width="160" height="4"/>
+        <rect x="70" y="175" width="160" height="4"/>
+        <rect x="70" y="200" width="120" height="4"/>
+    </g>
+
+    <!-- Official Seal Stamp (Red #DC143C) - Top Right Corner -->
+    <g transform="translate(230, 90)">
+        <!-- Red Seal Base -->
+        <circle r="18" fill="#DC143C"/>
+        <!-- Inner Seal Detail (Gold #DAA520) - Stylized Crest -->
+        <path d="M-10 0 L0 -10 L10 0 L0 10 Z" fill="#DAA520" transform="scale(0.8) rotate(45)"/>
+    </g>
+
+    <!-- Ribbon Rosette (Gold #DAA520) - Bottom Center -->
+    <g fill="#DAA520">
+        <!-- Rosette Body (Simplified circular fold) -->
+        <circle cx="150" cy="240" r="15"/>
+        
+        <!-- Ribbon Tails -->
+        <!-- Left Tail -->
+        <path d="M145 250 L120 280 L130 285 L155 255 Z"/>
+        <!-- Right Tail -->
+        <path d="M155 250 L180 280 L170 285 L145 255 Z"/>
+        
+        <!-- Central overlap/knot detail for depth -->
+        <rect x="147" y="235" width="6" height="20"/>
+    </g>
+
+</svg>
